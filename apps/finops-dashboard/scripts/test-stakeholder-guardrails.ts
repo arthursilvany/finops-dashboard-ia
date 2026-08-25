@@ -20,7 +20,10 @@ import {
   projectCardsForModel,
   tokenBudgetFor,
 } from "../src/lib/stakeholder/narrative";
-import { renderStakeholderMarkdown } from "../src/lib/stakeholder/markdown";
+import {
+  escapeMarkdownTableCell,
+  renderStakeholderMarkdown,
+} from "../src/lib/stakeholder/markdown";
 import type { PersonaId, StakeholderCard } from "../src/lib/stakeholder";
 
 let failures = 0;
@@ -350,6 +353,14 @@ check("the limit grows with the number of cards", () => {
 
 console.log("\nMarkdown export");
 
+check("table cells escape backslashes, pipes, and line breaks", () => {
+  assert(
+    escapeMarkdownTableCell("path\\name | context\nnext") ===
+      "path\\\\name \\| context<br>next",
+    "table cell escaping is incomplete",
+  );
+});
+
 check("one file per persona, plus the README", () => {
   const files = renderStakeholderMarkdown(payload);
   assert(
@@ -376,7 +387,7 @@ check("each file is independently shareable", () => {
     assert(file.content.includes("## Next action"), "missing action");
     for (const metric of card.metrics) {
       assert(
-        file.content.includes(metric.tip.replace(/\|/g, "\\|")),
+        file.content.includes(escapeMarkdownTableCell(metric.tip)),
         `missing tip for "${metric.label}" — orphan number`,
       );
     }
