@@ -45,17 +45,17 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.17.0",
+    "@types/node": "^20.19.43",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "autoprefixer": "^10.4.20",
+    "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.5",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.1",
-    "hyparquet-writer": "^0.16.1",
+    "hyparquet-writer": "^0.16.6",
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.14",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.12",
     "typescript": "^5.6.3"
   }
 }
