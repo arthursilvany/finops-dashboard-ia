@@ -14,7 +14,7 @@ pydantic>=2.13.4
 cachetools>=5.5.2
 
 # HTTP server dependencies (for Docker)
-uvicorn>=0.52.3
+uvicorn>=0.52.4
 starlette>=0.52.1
 sse-starlette>=1.8.2
 
