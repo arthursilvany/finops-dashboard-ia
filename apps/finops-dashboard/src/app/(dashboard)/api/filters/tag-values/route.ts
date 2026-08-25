@@ -9,7 +9,7 @@ const schema = z.object({
   key: z.string().min(1).max(256),
 });
 
-const VALID_TAG_KEY = /^[a-zA-Z0-9_.\-:/\s]+$/;
+const VALID_TAG_KEY = /^[a-zA-Z0-9_.\-:/ ]+$/;
 
 export async function GET(request: NextRequest) {
   const now = new Date().toISOString();
@@ -61,11 +61,10 @@ export async function GET(request: NextRequest) {
     } satisfies ApiResponse<string[]>);
   }
 
-  const escapedKey = tagKey.replace(/'/g, "\\'");
   const query = `
 Costs()
 | where isnotempty(Tags)
-| extend tagVal = tostring(todynamic(Tags)['${escapedKey}'])
+| extend tagVal = tostring(todynamic(Tags)['${tagKey}'])
 | where isnotempty(tagVal)
 | distinct tagVal
 | order by tagVal asc

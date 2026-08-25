@@ -12,6 +12,13 @@ function slugOf(card: StakeholderCard): string {
   return `${card.persona}.md`;
 }
 
+export function escapeMarkdownTableCell(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, "<br>");
+}
+
 function renderCard(
   card: StakeholderCard,
   payload: StakeholderCardsPayload,
@@ -33,7 +40,7 @@ function renderCard(
   lines.push("|---|---|---|");
   for (const metric of card.metrics) {
     lines.push(
-      `| ${metric.label} | ${metric.value} | ${metric.tip.replace(/\|/g, "\\|")} |`,
+      `| ${metric.label} | ${metric.value} | ${escapeMarkdownTableCell(metric.tip)} |`,
     );
   }
   lines.push("");
