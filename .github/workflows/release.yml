@@ -1,0 +1,107 @@
+name: Release
+
+# Publishes the two artifacts a customer needs in order to run this dashboard
+# without ever receiving the source code:
+#
+#   1. the container image, pushed to the target ACR
+#   2. a versioned Template Spec, published into the target subscription
+#
+# Both are tagged with the git tag, so a rollback is `--version <previous tag>`
+# plus re-pointing the Container App at the previous image tag.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.0.0). Defaults to the git tag."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # required for azure/login OIDC
+
+env:
+  IMAGE_NAME: finops-dashboard
+  TEMPLATE_SPEC_NAME: finops-dashboard
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $VERSION"
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # -- Artifact 1: container image -----------------------------------------
+      # `az acr build` builds server-side, so no docker login or local daemon is
+      # needed and the image never transits this runner.
+      - name: Build and push the container image
+        run: |
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --image "${IMAGE_NAME}:${{ steps.version.outputs.value }}" \
+            --image "${IMAGE_NAME}:latest" \
+            --file Dockerfile \
+            apps/finops-dashboard
+
+      # -- Artifact 2: Template Spec -------------------------------------------
+      # The ARM JSON is committed, but recompiling guarantees it matches the
+      # Bicep in this tag instead of whatever was last compiled by hand.
+      - name: Recompile ARM JSON from Bicep
+        run: |
+          az bicep build \
+            --file infra/bicep/finops-dashboard/main.bicep \
+            --outfile infra/arm/azuredeploy.json
+
+      - name: Fail if the committed ARM JSON is stale
+        run: |
+          if ! git diff --quiet -- infra/arm/azuredeploy.json; then
+            echo "::error::infra/arm/azuredeploy.json is out of date with main.bicep."
+            echo "Run: az bicep build --file infra/bicep/finops-dashboard/main.bicep --outfile infra/arm/azuredeploy.json"
+            git diff --stat -- infra/arm/azuredeploy.json
+            exit 1
+          fi
+
+      - name: Publish the Template Spec
+        run: |
+          az ts create \
+            --name "${TEMPLATE_SPEC_NAME}" \
+            --version "${{ steps.version.outputs.value }}" \
+            --resource-group "${{ vars.TEMPLATE_SPEC_RESOURCE_GROUP }}" \
+            --location "${{ vars.AZURE_LOCATION }}" \
+            --template-file infra/arm/azuredeploy.json \
+            --ui-form-definition infra/portal/createUiDefinition.json \
+            --yes
+
+      - name: Summary
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          {
+            echo "### Released \`$VERSION\`"
+            echo ""
+            echo "| Artifact | Reference |"
+            echo "| --- | --- |"
+            echo "| Image | \`${{ vars.ACR_NAME }}.azurecr.io/${IMAGE_NAME}:$VERSION\` |"
+            echo "| Template Spec | \`${TEMPLATE_SPEC_NAME}\` v\`$VERSION\` in \`${{ vars.TEMPLATE_SPEC_RESOURCE_GROUP }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/arthursilvany/finops-dashboard-ia/blob/main/docs/README.md
+    about: Read the documentation before opening an issue — start here.
+  - name: 🔧 Troubleshooting guide
+    url: https://github.com/arthursilvany/finops-dashboard-ia/blob/main/docs/operations/troubleshooting.md
+    about: Common failures and their fixes, including HTTP 401 on sign-in and Forbidden errors.
+  - name: 🚀 Deployment guide
+    url: https://github.com/arthursilvany/finops-dashboard-ia/blob/main/apps/finops-dashboard/DEPLOY.md
+    about: Step-by-step Azure deployment, including the RBAC that must be granted after deploy.
+  - name: 🔐 Report a security vulnerability
+    url: https://github.com/arthursilvany/finops-dashboard-ia/blob/main/SECURITY.md
+    about: How to report a vulnerability privately. Never file it as a public issue — read SECURITY.md for the current reporting route.
+  - name: 💬 Questions and support
+    url: https://github.com/arthursilvany/finops-dashboard-ia/blob/main/SUPPORT.md
+    about: Where to ask questions and what is in scope.

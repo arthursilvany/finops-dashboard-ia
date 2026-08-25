@@ -1,0 +1,59 @@
+name: Documentation
+description: Something in the documentation is wrong, unclear, or missing
+title: "[Docs]: "
+labels: ["documentation", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation issues are welcome and genuinely useful — a step that does not work is a
+        bug, even when it is only prose.
+
+        All documentation in this repository is written in **English**.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem is it?
+      options:
+        - Incorrect — the documented behavior does not match reality
+        - Missing — something is not documented at all
+        - Unclear — documented, but hard to follow
+        - Outdated — describes a previous version
+        - Broken link or bad reference
+        - Not in English
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Which document?
+      description: Path or URL of the affected page. Include a heading or line number if you can.
+      placeholder: docs/operations/deployment.md, "Grant ADX access" section
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong?
+      description: Quote the passage if it helps, and explain what tripped you up.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested correction
+      description: >
+        What should it say instead? If you followed a step that failed, include the command you
+        ran and the error you got — with secrets redacted.
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request fixing this.
+          required: false

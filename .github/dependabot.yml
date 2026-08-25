@@ -1,0 +1,157 @@
+version: 2
+
+# Dependency updates are weekly and grouped to keep pull request volume low.
+#
+# Policy:
+#   * Major version updates are never opened automatically (broad `ignore` per
+#     ecosystem). They require deliberate migration and code review.
+#
+#     Caveat, deliberately recorded: `ignore` conditions apply to Dependabot
+#     *security* updates as well, not only version updates. Dependabot will still
+#     raise a security PR when the ignored update type is the only way to fix a
+#     vulnerability, but do not treat these rules as security-transparent. When a
+#     Dependabot alert fires and no PR appears, check these rules first, and
+#     remediate the alert manually rather than assuming it was delivered.
+#   * Minor/patch updates are grouped into a single PR per ecosystem per week.
+#     Each group uses `patterns: ["*"]` as an explicit selector, because a group
+#     with only `update-types` has no selector and matches nothing, leaving every
+#     dependency to open its own PR.
+#   * github-actions intentionally has NO broad major ignore so action majors
+#     (e.g. actions/checkout v4 -> v7) can still be proposed.
+
+updates:
+  # ── Dashboard application (Next.js 16 / TypeScript) ────────────────────────
+  - package-ecosystem: npm
+    directory: /apps/finops-dashboard
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - javascript
+    # `include: scope` already appends (deps)/(deps-dev); keep prefix as "chore"
+    # so titles read `chore(deps): ...`, not the doubled `chore(deps)(deps): ...`.
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      production-minor-patch:
+        dependency-type: production
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      development-minor-patch:
+        dependency-type: development
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # No automated major bumps for anything (covers next, react, react-dom,
+      # etc.). App Router, React and tooling majors need a deliberate migration.
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  # ── Azure Pricing MCP server (Python) ──────────────────────────────────────
+  - package-ecosystem: pip
+    directory: /mcp/azure-pricing-mcp
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # One grouped pip PR per week. The selector is `patterns` ONLY, deliberately
+      # WITHOUT an `update-types` filter. This directory has no lock file, so
+      # Dependabot updates the version *ranges* in pyproject.toml (a "widen"
+      # requirement update) rather than a pinned version. The semver level of a
+      # range-widening requirement update is not reliably classified, so an
+      # `update-types: [minor, patch]` filter silently drops these updates out of
+      # the group and each opens its own PR (observed for uvicorn, pytest-asyncio
+      # and mypy, all created *after* the grouped config was pushed). The npm
+      # groups classify cleanly only because that app ships a lock file and gets
+      # true version updates. Grouping on `patterns: ["*"]` alone is
+      # deterministic; majors are still held back by the `ignore` block below.
+      minor-patch:
+        patterns:
+          - "*"
+    ignore:
+      # No automated major bumps (best-effort net covering pytest-asyncio 1.x,
+      # setuptools, etc.). CAVEAT: `version-update:semver-major` depends on
+      # Dependabot's semver classification, which is unreliable for the
+      # range-widening requirement updates produced in this lock-file-less pip
+      # directory. It did NOT stop the mcp 1.x -> 2.x bump (PR #21). Anything that
+      # must never regress is therefore pinned with an explicit `versions:` range
+      # below, which is version-based and does not depend on classification.
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+      # mcp is capped below 2.0.0. mcp 2.0 removed the low-level
+      # Server.list_tools() decorator this server is built on; the matching cap is
+      # `mcp>=1.0.0,<2.0.0` in mcp/azure-pricing-mcp/pyproject.toml and the reason
+      # is documented in AGENTS.md. An explicit `versions` range is used instead
+      # of relying on the broad major rule above, which failed to catch it
+      # (PR #21): widening the manifest's `<2.0.0` bound is a requirement update
+      # whose semver level Dependabot does not reliably classify, so
+      # `version-update:semver-major` never matched. Remove this rule only after
+      # the server is ported to the mcp 2.x API (a replacement for the removed
+      # Server.list_tools() low-level decorator).
+      - dependency-name: mcp
+        versions:
+          - ">=2.0.0"
+      # aiohttp is held below 3.14. aiohttp 3.14 added a required `stream_writer`
+      # argument to ClientResponse.__init__ that aioresponses (0.7.9, latest) does
+      # not pass, so tests/test_client_http.py fail with TypeError. This mirrors
+      # the test-only cap `aiohttp<3.14` in mcp/azure-pricing-mcp/pyproject.toml
+      # [dev]. An explicit `versions` range is used rather than
+      # `version-update:semver-minor` for the same reason as mcp above: widening
+      # `aiohttp>=3.9.0` is a requirement update whose semver level is not
+      # reliably classified, so an `update-types` ignore is fragile here too.
+      #
+      # This rule also suppresses ordinary security bumps for aiohttp at or above
+      # 3.14, so aiohttp alerts must be reviewed by hand until it is removed.
+      # Remove it as soon as aioresponses ships a release that passes
+      # `stream_writer` to ClientResponse.__init__, then drop the matching cap in
+      # pyproject.toml.
+      - dependency-name: aiohttp
+        versions:
+          - ">=3.14"
+
+  # ── GitHub Actions used by the workflows ───────────────────────────────────
+  # No major ignore here on purpose: action major bumps (e.g. actions/checkout
+  # v4 -> v7) should still be proposed for review.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

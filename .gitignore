@@ -1,0 +1,126 @@
+# ============================================================================
+# FinOps Dashboard - .gitignore
+# ============================================================================
+
+# ──────────────────────────────────────────────
+# SECURITY: Prevent leakage of lab/personal data
+# ──────────────────────────────────────────────
+# Raw Azure discovery snapshots (never commit these)
+infra/snapshots/mvp-private/
+infra/snapshots/**/*.private.json
+infra/snapshots/**/*.raw.json
+.github/prompts/
+
+# Customer Cost Export data (POC mode) — real financial data, ResourceIds and Tags.
+# Input holds the raw collector exports, output holds the processed datasets.
+# Everything is ignored except the docs that explain the folders.
+input/customer/**
+!input/customer/
+!input/customer/.gitkeep
+!input/customer/README.md
+output/
+
+# Scratch datasets used by local test runs (CUSTOMER_DATA_DIR overrides).
+# Same sensitivity as input/customer: never commit.
+.tmp-fleet/
+
+# Environment files with real credentials
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+**/*.env
+
+# Azure local settings
+**/local.settings.json
+**/*.local.json
+**/*.lab.*
+
+# Azure authentication files
+.azure/
+*.azureauth
+*.publishsettings
+
+# ──────────────────────────────────────────────
+# Node.js / Next.js
+# ──────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Next.js build outputs
+apps/**/build/
+apps/**/.next/
+apps/**/out/
+apps/**/.tsbuildinfo
+apps/**/*.tsbuildinfo
+
+# ──────────────────────────────────────────────
+# Infrastructure & Build
+# ──────────────────────────────────────────────
+# Bicep compiled output (keep ARM JSON intentionally, not intermediate .bin)
+**/*.bin
+**/*.dll
+
+# Terraform (not used here but good practice)
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+
+# ──────────────────────────────────────────────
+# IDEs & OS
+# ──────────────────────────────────────────────
+.vscode/settings.json
+.vscode/*.code-snippets
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ──────────────────────────────────────────────
+# Certificates & Keys
+# ──────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+
+# ──────────────────────────────────────────────
+# Product planning and local ideation artifacts
+# ──────────────────────────────────────────────
+apps/finops-dashboard/new-features-state-finops-2026/
+apps/finops-dashboard/reservationdetailcoworkcarla.md
+apps/finops-dashboard/finops-growth/prompt-seo-aeo.md
+apps/finops-dashboard/azure-cost-calculator-free-tool/
+apps/finops-dashboard/mcp-server/
+apps/finops-dashboard/ai-finops-accelerator-dashboard/
+
+# Agent guidance is tracked, not ignored: AGENTS.md and .github/copilot-instructions.md
+# are the entry points every contributor and coding agent is expected to read.
+
+# Local knowledge-graph output from the graphify tooling
+graphify-out/

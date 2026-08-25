@@ -1,0 +1,567 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "basics": [
+      {
+        "name": "projectName",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Project Name",
+        "defaultValue": "finops-dashboard",
+        "toolTip": "Used as a prefix for all deployed resource names. Lowercase letters, numbers and hyphens only.",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$",
+          "validationMessage": "Must be 4–24 characters: lowercase letters, numbers, or hyphens. Cannot start or end with a hyphen."
+        }
+      },
+      {
+        "name": "environment",
+        "type": "Microsoft.Common.DropDown",
+        "label": "Environment",
+        "defaultValue": "prod",
+        "toolTip": "Deployment environment tag applied to all resources.",
+        "constraints": {
+          "required": true,
+          "allowedValues": [
+            { "label": "Development", "value": "dev" },
+            { "label": "Staging", "value": "staging" },
+            { "label": "Production", "value": "prod" }
+          ]
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "containerStep",
+        "label": "Container",
+        "elements": [
+          {
+            "name": "containerSizingInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": true,
+            "options": {
+              "text": "Configure the compute resources for the FinOps Dashboard container. The 0.5 vCPU / 1 GiB default handles up to ~50 concurrent users.",
+              "style": "Info"
+            }
+          },
+          {
+            "name": "containerCpu",
+            "type": "Microsoft.Common.DropDown",
+            "label": "CPU (vCPU)",
+            "defaultValue": "0.5",
+            "toolTip": "vCPU allocated per container replica.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                { "label": "0.25 vCPU (light workloads)", "value": "0.25" },
+                { "label": "0.5 vCPU (recommended)", "value": "0.5" },
+                { "label": "1.0 vCPU (high traffic)", "value": "1.0" },
+                { "label": "2.0 vCPU (intensive queries)", "value": "2.0" }
+              ]
+            }
+          },
+          {
+            "name": "containerMemory",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Memory",
+            "defaultValue": "1Gi",
+            "toolTip": "Memory allocated per container replica.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                { "label": "0.5 GiB", "value": "0.5Gi" },
+                { "label": "1 GiB (recommended)", "value": "1Gi" },
+                { "label": "2 GiB", "value": "2Gi" },
+                { "label": "4 GiB", "value": "4Gi" }
+              ]
+            }
+          },
+          {
+            "name": "scalingSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Scaling",
+            "elements": [
+              {
+                "name": "minReplicas",
+                "type": "Microsoft.Common.Slider",
+                "label": "Minimum Replicas",
+                "defaultValue": 1,
+                "toolTip": "Minimum number of container replicas. Set to 0 to allow scale-to-zero (cold start latency ~15s).",
+                "min": 0,
+                "max": 5,
+                "showStepMarkers": true
+              },
+              {
+                "name": "maxReplicas",
+                "type": "Microsoft.Common.Slider",
+                "label": "Maximum Replicas",
+                "defaultValue": 3,
+                "toolTip": "Maximum number of container replicas for horizontal scaling.",
+                "min": 1,
+                "max": 10,
+                "showStepMarkers": false
+              }
+            ]
+          },
+          {
+            "name": "acrSku",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Container Registry SKU",
+            "defaultValue": "Basic",
+            "toolTip": "Azure Container Registry tier. Basic is sufficient for most deployments.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                {
+                  "label": "Basic (recommended for most deployments)",
+                  "value": "Basic"
+                },
+                {
+                  "label": "Standard (adds webhooks, more storage)",
+                  "value": "Standard"
+                },
+                {
+                  "label": "Premium (geo-replication, private link)",
+                  "value": "Premium"
+                }
+              ]
+            }
+          },
+          {
+            "name": "grantAcrPull",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Grant AcrPull to the Container App identity",
+            "defaultValue": true,
+            "toolTip": "Creates the AcrPull role assignment automatically. Requires Owner or User Access Administrator on the resource group. Uncheck if you only have Contributor, then grant AcrPull manually after the deployment."
+          },
+          {
+            "name": "dashboardImageName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Container Image Name",
+            "defaultValue": "finops-dashboard:latest",
+            "toolTip": "Image name and tag to pull from ACR (without registry prefix). Build and push the image to ACR before deploying.",
+            "constraints": {
+              "required": true,
+              "regex": "^[a-z0-9][a-z0-9._/-]*:[a-zA-Z0-9._-]+$",
+              "validationMessage": "Must be a valid image name:tag format."
+            }
+          }
+        ]
+      },
+      {
+        "name": "analyticsStep",
+        "label": "Analytics Backend",
+        "elements": [
+          {
+            "name": "analyticsBackend",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Analytics Backend",
+            "defaultValue": "ADX",
+            "toolTip": "The data backend used for FinOps queries. Choose 'None' to deploy the dashboard without a pre-configured analytics source.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                {
+                  "label": "None (UI only, configure backend later)",
+                  "value": "None"
+                },
+                {
+                  "label": "Azure Data Explorer (ADX / Kusto)",
+                  "value": "ADX"
+                },
+                {
+                  "label": "Microsoft Fabric Real-Time Intelligence",
+                  "value": "Fabric"
+                }
+              ]
+            }
+          },
+          {
+            "name": "adxSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Azure Data Explorer (ADX) Settings",
+            "visible": "[equals(steps('analyticsStep').analyticsBackend, 'ADX')]",
+            "elements": [
+              {
+                "name": "adxClusterUri",
+                "type": "Microsoft.Common.TextBox",
+                "label": "ADX Cluster URI",
+                "placeholder": "https://yourcluster.region.kusto.windows.net",
+                "toolTip": "The full URI of your ADX cluster. Found in the Azure Portal under the ADX cluster Overview page.",
+                "constraints": {
+                  "required": "[equals(steps('analyticsStep').analyticsBackend, 'ADX')]",
+                  "regex": "^https://.+\\.kusto\\.windows\\.net$",
+                  "validationMessage": "Must be a valid ADX cluster URI ending in .kusto.windows.net"
+                }
+              },
+              {
+                "name": "adxDatabaseName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "ADX Database Name",
+                "placeholder": "finops",
+                "toolTip": "The name of the Kusto database containing your FinOps data.",
+                "constraints": {
+                  "required": "[equals(steps('analyticsStep').analyticsBackend, 'ADX')]"
+                }
+              },
+              {
+                "name": "adxQueryTimeoutSeconds",
+                "type": "Microsoft.Common.Slider",
+                "label": "Query Timeout (seconds)",
+                "defaultValue": 30,
+                "toolTip": "Maximum time (seconds) to wait for ADX query results.",
+                "min": 10,
+                "max": 300
+              }
+            ]
+          },
+          {
+            "name": "fabricSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Microsoft Fabric RTI Settings",
+            "visible": "[equals(steps('analyticsStep').analyticsBackend, 'Fabric')]",
+            "elements": [
+              {
+                "name": "fabricQueryUri",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Fabric KQL Query URI",
+                "placeholder": "https://yourcluster.region.kusto.fabric.microsoft.com",
+                "toolTip": "The query URI of your Fabric KQL database. Ends in .kusto.fabric.microsoft.com",
+                "constraints": {
+                  "required": false,
+                  "regex": "^https://.+\\.kusto\\.fabric\\.microsoft\\.com$",
+                  "validationMessage": "Must be a valid Fabric KQL URI"
+                }
+              },
+              {
+                "name": "fabricWorkspaceId",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Fabric Workspace ID (optional)",
+                "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                "toolTip": "The Fabric workspace GUID. Required if Fabric Query URI is not set.",
+                "constraints": { "required": false }
+              },
+              {
+                "name": "fabricKqlDatabaseName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Fabric KQL Database Name (optional)",
+                "placeholder": "FinOpsDB",
+                "toolTip": "Required if Fabric Workspace ID is provided.",
+                "constraints": { "required": false }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "aiStep",
+        "label": "AI Assistant",
+        "elements": [
+          {
+            "name": "aiInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": true,
+            "options": {
+              "text": "The AI assistant (cost chat) is independent of the analytics backend. Enable it to configure an Azure OpenAI (or Azure AI Foundry inference) endpoint that powers natural-language cost analysis. Authentication uses the app's Managed Identity — no keys required.",
+              "style": "Info"
+            }
+          },
+          {
+            "name": "enableAiAssistant",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Enable AI assistant (cost chat)",
+            "toolTip": "When enabled, the dashboard exposes an AI-powered cost assistant backed by Azure OpenAI / Azure AI Foundry. Requires an inference endpoint and a deployed model.",
+            "defaultValue": false
+          },
+          {
+            "name": "aiSection",
+            "type": "Microsoft.Common.Section",
+            "label": "AI Assistant Settings",
+            "visible": "[steps('aiStep').enableAiAssistant]",
+            "elements": [
+              {
+                "name": "azureOpenaiEndpoint",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Azure OpenAI / Foundry Inference Endpoint",
+                "placeholder": "https://yourresource.openai.azure.com",
+                "toolTip": "The Azure OpenAI endpoint (https://<resource>.openai.azure.com) or Azure AI Foundry inference endpoint (https://<resource>.services.ai.azure.com or https://<resource>.cognitiveservices.azure.com) that hosts your chat model. The app's Managed Identity must have the 'Cognitive Services OpenAI User' role on this resource.",
+                "constraints": {
+                  "required": "[steps('aiStep').enableAiAssistant]",
+                  "regex": "^https://[a-zA-Z0-9-]+\\.(openai\\.azure\\.com|services\\.ai\\.azure\\.com|cognitiveservices\\.azure\\.com)(/.*)?$",
+                  "validationMessage": "Must be a valid Azure OpenAI (*.openai.azure.com) or Azure AI Foundry (*.services.ai.azure.com / *.cognitiveservices.azure.com) HTTPS endpoint."
+                }
+              },
+              {
+                "name": "azureOpenaiDeployment",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Model Deployment Name",
+                "defaultValue": "gpt-4o",
+                "toolTip": "The name of the deployed chat model (e.g., gpt-4o) on the endpoint above.",
+                "constraints": {
+                  "required": "[steps('aiStep').enableAiAssistant]"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "authStep",
+        "label": "Authentication",
+        "elements": [
+          {
+            "name": "authInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": true,
+            "options": {
+              "text": "Managed Identity is strongly recommended. It requires no credentials to manage and automatically rotates tokens. Service Principal and API Key are provided for compatibility only.",
+              "style": "Info"
+            }
+          },
+          {
+            "name": "authMode",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Authentication Mode",
+            "defaultValue": "ManagedIdentity",
+            "toolTip": "How the dashboard authenticates to the analytics backend.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                {
+                  "label": "Managed Identity (recommended)",
+                  "value": "ManagedIdentity"
+                },
+                {
+                  "label": "Service Principal (client secret)",
+                  "value": "ServicePrincipal"
+                },
+                { "label": "API Key", "value": "ApiKey" }
+              ]
+            }
+          },
+          {
+            "name": "spSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Service Principal Credentials",
+            "visible": "[equals(steps('authStep').authMode, 'ServicePrincipal')]",
+            "elements": [
+              {
+                "name": "spTenantId",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Tenant ID",
+                "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                "constraints": {
+                  "required": "[equals(steps('authStep').authMode, 'ServicePrincipal')]",
+                  "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "validationMessage": "Must be a valid GUID"
+                }
+              },
+              {
+                "name": "spClientId",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Client ID (App Registration)",
+                "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                "constraints": {
+                  "required": "[equals(steps('authStep').authMode, 'ServicePrincipal')]",
+                  "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "validationMessage": "Must be a valid GUID"
+                }
+              },
+              {
+                "name": "spClientSecret",
+                "type": "Microsoft.Common.PasswordBox",
+                "label": {
+                  "password": "Client Secret",
+                  "confirmPassword": "Confirm Client Secret"
+                },
+                "toolTip": "The client secret for the service principal. Stored securely as a Container App secret.",
+                "constraints": {
+                  "required": "[equals(steps('authStep').authMode, 'ServicePrincipal')]"
+                },
+                "options": { "hideConfirmation": false }
+              }
+            ]
+          },
+          {
+            "name": "apiKeySection",
+            "type": "Microsoft.Common.Section",
+            "label": "API Key",
+            "visible": "[equals(steps('authStep').authMode, 'ApiKey')]",
+            "elements": [
+              {
+                "name": "apiKey",
+                "type": "Microsoft.Common.PasswordBox",
+                "label": {
+                  "password": "API Key",
+                  "confirmPassword": "Confirm API Key"
+                },
+                "toolTip": "API key for the analytics backend. Stored securely as a Container App secret.",
+                "constraints": {
+                  "required": "[equals(steps('authStep').authMode, 'ApiKey')]"
+                },
+                "options": { "hideConfirmation": true }
+              }
+            ]
+          },
+          {
+            "name": "easyAuthInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": true,
+            "options": {
+              "text": "The dashboard is published on a public ingress. Without Easy Auth, every API route (cost data, ADX queries, the AI assistant) is reachable anonymously. Enable it and supply an Entra ID app registration whose redirect URI is https://<app-fqdn>/.auth/login/aad/callback.",
+              "style": "Warning"
+            }
+          },
+          {
+            "name": "enableEasyAuth",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Require Microsoft Entra ID sign-in to access the dashboard (recommended)",
+            "defaultValue": true,
+            "toolTip": "Enables Container Apps built-in authentication (Easy Auth). Requires an existing Entra ID app registration with a client secret."
+          },
+          {
+            "name": "easyAuthSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Entra ID App Registration (Easy Auth)",
+            "visible": "[steps('authStep').enableEasyAuth]",
+            "elements": [
+              {
+                "name": "easyAuthClientId",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Application (client) ID",
+                "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                "toolTip": "Client ID of the Entra ID app registration used to sign users in.",
+                "constraints": {
+                  "required": "[steps('authStep').enableEasyAuth]",
+                  "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "validationMessage": "Must be a valid GUID"
+                }
+              },
+              {
+                "name": "easyAuthClientSecret",
+                "type": "Microsoft.Common.PasswordBox",
+                "label": {
+                  "password": "Client secret",
+                  "confirmPassword": "Confirm client secret"
+                },
+                "toolTip": "Client secret of the app registration. Stored as a Container App secret.",
+                "constraints": {
+                  "required": "[steps('authStep').enableEasyAuth]"
+                },
+                "options": { "hideConfirmation": true }
+              },
+              {
+                "name": "easyAuthTenantId",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Tenant ID (optional)",
+                "placeholder": "Leave empty to use the deployment tenant",
+                "toolTip": "Tenant that issues the tokens. Leave empty to use the tenant of the target subscription.",
+                "constraints": {
+                  "required": false,
+                  "regex": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "validationMessage": "Must be a valid GUID or empty"
+                }
+              },
+              {
+                "name": "authDefaultRole",
+                "type": "Microsoft.Common.DropDown",
+                "label": "Access for users without an app role",
+                "defaultValue": "Deny access (recommended)",
+                "toolTip": "Behaviour for a user who signs in successfully but has neither the FinOps.Reader nor the FinOps.Admin app role assigned.",
+                "constraints": {
+                  "required": true,
+                  "allowedValues": [
+                    { "label": "Deny access (recommended)", "value": "none" },
+                    { "label": "Grant read-only access", "value": "Reader" }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "loggingStep",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "name": "logRetentionDays",
+            "type": "Microsoft.Common.Slider",
+            "label": "Log Retention (days)",
+            "defaultValue": 30,
+            "toolTip": "Number of days to retain logs in Log Analytics Workspace. Longer retention increases cost.",
+            "min": 7,
+            "max": 730
+          },
+          {
+            "name": "mcpSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Azure Pricing MCP Server (optional)",
+            "elements": [
+              {
+                "name": "deployMcp",
+                "type": "Microsoft.Common.CheckBox",
+                "label": "Deploy Azure Pricing MCP server",
+                "toolTip": "Deploys the Azure retail pricing MCP server as an internal-only Container App, used by the AI assistant in the dashboard. It is not reachable from the internet.",
+                "defaultValue": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "tagsStep",
+        "label": "Tags",
+        "elements": [
+          {
+            "name": "tagsByResource",
+            "type": "Microsoft.Common.TagsByResource",
+            "toolTip": "Optional tags to apply to all deployed resources.",
+            "resources": [
+              "Microsoft.App/containerApps",
+              "Microsoft.App/managedEnvironments",
+              "Microsoft.ContainerRegistry/registries",
+              "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "Microsoft.OperationalInsights/workspaces"
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "location": "[location()]",
+      "projectName": "[basics('projectName')]",
+      "environment": "[basics('environment')]",
+      "analyticsBackend": "[steps('analyticsStep').analyticsBackend]",
+      "adxClusterUri": "[if(equals(steps('analyticsStep').analyticsBackend, 'ADX'), steps('analyticsStep').adxSection.adxClusterUri, '')]",
+      "adxDatabaseName": "[if(equals(steps('analyticsStep').analyticsBackend, 'ADX'), steps('analyticsStep').adxSection.adxDatabaseName, '')]",
+      "adxQueryTimeoutSeconds": "[if(equals(steps('analyticsStep').analyticsBackend, 'ADX'), steps('analyticsStep').adxSection.adxQueryTimeoutSeconds, 30)]",
+      "fabricQueryUri": "[if(equals(steps('analyticsStep').analyticsBackend, 'Fabric'), steps('analyticsStep').fabricSection.fabricQueryUri, '')]",
+      "fabricWorkspaceId": "[if(equals(steps('analyticsStep').analyticsBackend, 'Fabric'), steps('analyticsStep').fabricSection.fabricWorkspaceId, '')]",
+      "fabricKqlDatabaseName": "[if(equals(steps('analyticsStep').analyticsBackend, 'Fabric'), steps('analyticsStep').fabricSection.fabricKqlDatabaseName, '')]",
+      "azureOpenaiEndpoint": "[if(steps('aiStep').enableAiAssistant, steps('aiStep').aiSection.azureOpenaiEndpoint, '')]",
+      "azureOpenaiDeployment": "[if(steps('aiStep').enableAiAssistant, steps('aiStep').aiSection.azureOpenaiDeployment, 'gpt-4o')]",
+      "authMode": "[steps('authStep').authMode]",
+      "spTenantId": "[if(equals(steps('authStep').authMode, 'ServicePrincipal'), steps('authStep').spSection.spTenantId, '')]",
+      "spClientId": "[if(equals(steps('authStep').authMode, 'ServicePrincipal'), steps('authStep').spSection.spClientId, '')]",
+      "spClientSecret": "[if(equals(steps('authStep').authMode, 'ServicePrincipal'), steps('authStep').spSection.spClientSecret.password, '')]",
+      "apiKey": "[if(equals(steps('authStep').authMode, 'ApiKey'), steps('authStep').apiKeySection.apiKey.password, '')]",
+      "enableEasyAuth": "[steps('authStep').enableEasyAuth]",
+      "easyAuthClientId": "[if(steps('authStep').enableEasyAuth, steps('authStep').easyAuthSection.easyAuthClientId, '')]",
+      "easyAuthClientSecret": "[if(steps('authStep').enableEasyAuth, steps('authStep').easyAuthSection.easyAuthClientSecret.password, '')]",
+      "easyAuthTenantId": "[if(steps('authStep').enableEasyAuth, steps('authStep').easyAuthSection.easyAuthTenantId, '')]",
+      "authDefaultRole": "[if(steps('authStep').enableEasyAuth, steps('authStep').easyAuthSection.authDefaultRole, 'none')]",
+      "containerCpu": "[steps('containerStep').containerCpu]",
+      "containerMemory": "[steps('containerStep').containerMemory]",
+      "minReplicas": "[steps('containerStep').scalingSection.minReplicas]",
+      "maxReplicas": "[steps('containerStep').scalingSection.maxReplicas]",
+      "acrSku": "[steps('containerStep').acrSku]",
+      "grantAcrPull": "[steps('containerStep').grantAcrPull]",
+      "dashboardImageName": "[steps('containerStep').dashboardImageName]",
+      "deployMcp": "[steps('loggingStep').mcpSection.deployMcp]",
+      "logRetentionDays": "[steps('loggingStep').logRetentionDays]"
+    }
+  }
+}

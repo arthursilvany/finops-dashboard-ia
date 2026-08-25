@@ -1,0 +1,123 @@
+name: Bug Report
+description: Something in the dashboard, infrastructure, or docs behaves incorrectly
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+
+        **Before you continue**, please check
+        [Troubleshooting](https://github.com/arthursilvany/finops-dashboard-ia/blob/main/docs/operations/troubleshooting.md).
+        It covers the most common failures, including sign-in returning HTTP 401, blank pages
+        after building over a running dev server, and `Forbidden` errors from Kusto or Azure
+        OpenAI.
+
+        ⚠️ **Never paste secrets.** Redact client secrets, keys, tokens, connection strings,
+        tenant and subscription IDs, and customer names before submitting.
+
+        🔐 **Found a security vulnerability?** Do not file it here. Follow
+        [SECURITY.md](https://github.com/arthursilvany/finops-dashboard-ia/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of the repository is affected?
+      options:
+        - Dashboard application (apps/finops-dashboard)
+        - Infrastructure — Bicep / ARM (infra/)
+        - Authentication / sign-in (Easy Auth, middleware, route policy)
+        - Data source — ADX / FinOps Hub / Fabric / Foundry
+        - Agentic FinOps / Azure Advisor
+        - Customer POC mode (cost export ingestion)
+        - Azure Pricing MCP server (mcp/azure-pricing-mcp)
+        - Documentation
+        - CI / GitHub Actions
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior.
+      placeholder: After signing in, every page renders blank and the browser console shows 404s for JS chunks.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, requests, or clicks needed to see the problem.
+      placeholder: |
+        1. Deploy with `analyticsBackend=ADX` and `enableEasyAuth=true`
+        2. Sign in as a user holding the FinOps Reader role
+        3. Navigate to /agentic-finops
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      description: >
+        Container App logs, browser console output, or CLI errors.
+        This is rendered as a code block, so no backticks are needed.
+        Redact anything sensitive first.
+      render: shell
+
+  - type: input
+    id: file-paths
+    attributes:
+      label: Affected file(s)
+      description: If you know which files are involved, list them.
+      placeholder: infra/bicep/finops-dashboard/modules/containerapp.bicep
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag or commit SHA you are running.
+      placeholder: v1.0.0, or a923621
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where does this happen?
+      options:
+        - Local development
+        - Deployed to Azure Container Apps
+        - Both
+        - Not applicable (documentation issue)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that helps — screenshots, what you already tried, related issues.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have checked the troubleshooting guide and searched existing issues.
+          required: true
+        - label: I have removed all secrets, credentials, and customer data from this report.
+          required: true

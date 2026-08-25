@@ -1,0 +1,180 @@
+import type { WorkloadKpi, CpuCostPoint, RightsizingRow } from "@/lib/types";
+import type { ApiResponse } from "@/lib/types";
+
+export const mockWorkloadKpi: ApiResponse<WorkloadKpi> = {
+  data: {
+    totalVMs: 142,
+    rightsizingCandidates: 23,
+    potentialMonthlySavings: 18400,
+    avgCpuUtilization: 34,
+  },
+  metadata: { queriedAt: new Date().toISOString(), isMock: true },
+};
+
+export const mockCpuCostPoints: ApiResponse<CpuCostPoint[]> = {
+  data: [
+    {
+      name: "vm-prod-web-01",
+      cpuAvg: 12,
+      monthlyCost: 4800,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-prod-web-02",
+      cpuAvg: 18,
+      monthlyCost: 4800,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-prod-api-01",
+      cpuAvg: 62,
+      monthlyCost: 3200,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-prod-api-02",
+      cpuAvg: 71,
+      monthlyCost: 3200,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-staging-01",
+      cpuAvg: 8,
+      monthlyCost: 1800,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-staging-02",
+      cpuAvg: 11,
+      monthlyCost: 1800,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-dev-01",
+      cpuAvg: 5,
+      monthlyCost: 900,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-analytics-01",
+      cpuAvg: 88,
+      monthlyCost: 6400,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-analytics-02",
+      cpuAvg: 79,
+      monthlyCost: 6400,
+      service: "Virtual Machines",
+    },
+    {
+      name: "vm-batch-01",
+      cpuAvg: 22,
+      monthlyCost: 2100,
+      service: "Virtual Machines",
+    },
+    {
+      name: "sql-prod-01",
+      cpuAvg: 44,
+      monthlyCost: 8200,
+      service: "SQL Database",
+    },
+    {
+      name: "sql-dev-01",
+      cpuAvg: 9,
+      monthlyCost: 1200,
+      service: "SQL Database",
+    },
+    {
+      name: "aks-node-01",
+      cpuAvg: 67,
+      monthlyCost: 5600,
+      service: "Kubernetes",
+    },
+    {
+      name: "aks-node-02",
+      cpuAvg: 72,
+      monthlyCost: 5600,
+      service: "Kubernetes",
+    },
+    {
+      name: "aks-node-03",
+      cpuAvg: 55,
+      monthlyCost: 5600,
+      service: "Kubernetes",
+    },
+  ],
+  metadata: { queriedAt: new Date().toISOString(), isMock: true },
+};
+
+export const mockRightsizingRows: ApiResponse<RightsizingRow[]> = {
+  data: [
+    {
+      resourceName: "vm-prod-web-01",
+      resourceGroup: "rg-prod-web",
+      subscriptionName: "Production",
+      currentSku: "Standard_D4s_v3",
+      recommendedSku: "Standard_D2s_v3",
+      cpuAvg: 12,
+      currentCost: 4800,
+      projectedCost: 2400,
+      monthlySavings: 2400,
+    },
+    {
+      resourceName: "vm-prod-web-02",
+      resourceGroup: "rg-prod-web",
+      subscriptionName: "Production",
+      currentSku: "Standard_D4s_v3",
+      recommendedSku: "Standard_D2s_v3",
+      cpuAvg: 18,
+      currentCost: 4800,
+      projectedCost: 2400,
+      monthlySavings: 2400,
+    },
+    {
+      resourceName: "vm-staging-01",
+      resourceGroup: "rg-staging",
+      subscriptionName: "Staging",
+      currentSku: "Standard_D4s_v3",
+      recommendedSku: "Standard_B2s",
+      cpuAvg: 8,
+      currentCost: 1800,
+      projectedCost: 400,
+      monthlySavings: 1400,
+    },
+    {
+      resourceName: "vm-staging-02",
+      resourceGroup: "rg-staging",
+      subscriptionName: "Staging",
+      currentSku: "Standard_D4s_v3",
+      recommendedSku: "Standard_B2s",
+      cpuAvg: 11,
+      currentCost: 1800,
+      projectedCost: 400,
+      monthlySavings: 1400,
+    },
+    {
+      resourceName: "vm-dev-01",
+      resourceGroup: "rg-dev",
+      subscriptionName: "Development",
+      currentSku: "Standard_D2s_v3",
+      recommendedSku: "Standard_B1s",
+      cpuAvg: 5,
+      currentCost: 900,
+      projectedCost: 140,
+      monthlySavings: 760,
+    },
+    {
+      resourceName: "sql-dev-01",
+      resourceGroup: "rg-dev",
+      subscriptionName: "Development",
+      currentSku: "Business Critical 4vCore",
+      recommendedSku: "General Purpose 2vCore",
+      cpuAvg: 9,
+      currentCost: 1200,
+      projectedCost: 340,
+      monthlySavings: 860,
+    },
+  ],
+  metadata: { queriedAt: new Date().toISOString(), isMock: true },
+};

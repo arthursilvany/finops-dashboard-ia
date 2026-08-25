@@ -1,0 +1,263 @@
+name: CI
+
+# Validates every pull request before merge. Nothing here needs Azure credentials:
+# `az bicep build` is an offline compiler, so no job touches a subscription.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # `dorny/paths-filter` calls the REST API to list a pull request's changed files.
+  # A workflow-level `permissions` block replaces the default set rather than adding
+  # to it, so without this the filter fails with "Resource not accessible by
+  # integration" on every pull request and all the gated jobs silently skip.
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Which parts of the repository did this change touch? Downstream jobs use this
+  # so a docs-only pull request does not pay for a full Next.js build.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      infra: ${{ steps.filter.outputs.infra }}
+      mcp: ${{ steps.filter.outputs.mcp }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'apps/finops-dashboard/**'
+              - '.github/workflows/ci.yml'
+            infra:
+              - 'infra/bicep/**'
+              - 'infra/arm/**'
+              - '.github/workflows/ci.yml'
+            mcp:
+              - 'mcp/azure-pricing-mcp/**'
+              - '.github/workflows/ci.yml'
+            docs:
+              # The link checker resolves every relative link in every tracked
+              # Markdown file, so any Markdown change can break it — not just a
+              # change under docs/.
+              - '**/*.md'
+              - 'scripts/check-doc-links.mjs'
+              - '.github/workflows/ci.yml'
+
+  app:
+    name: Dashboard — lint and build
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/finops-dashboard
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Keep in sync with the Dockerfile. Node 20 reached end of life on
+          # 2026-04-30 and no longer receives security patches.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/finops-dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production dependency audit
+        run: npm run audit:production
+
+      - name: Lint
+        run: npm run lint
+
+      - name: API reference is current
+        # docs/reference/api.md is generated from the route handlers. Without this
+        # check it goes stale the first time someone adds a route.
+        run: npm run api:docs:check
+
+      - name: Verification scripts
+        # Every script here runs offline: no Azure subscription, no credential, no
+        # network. They were local-only for a long time, which meant the auth
+        # matrix, the customer-data isolation guarantees and the ADX query
+        # deadline were all protected by nothing but whoever remembered to run
+        # them.
+        #
+        # `foundry:test` is deliberately absent — it calls a live Azure OpenAI
+        # deployment and stays a local-only check.
+        run: |
+          npm run auth:test
+          npm run adx:test
+          npm run stakeholder:test
+          npm run multicloud:test
+          npm run sku-advisor:test
+          npm run openai:test
+          npm run customer:test
+
+      - name: Build
+        # The build must succeed without any backend configured: the dashboard falls back to
+        # mock data when the analytics environment variables are absent.
+        run: npm run build
+
+  infra:
+    name: Infrastructure — Bicep drift
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Bicep CLI
+        run: |
+          az bicep install
+          az bicep version
+
+      - name: Compile Bicep
+        run: |
+          az bicep build \
+            --file infra/bicep/finops-dashboard/main.bicep \
+            --outfile /tmp/azuredeploy.json
+
+      - name: Fail if the committed ARM template has drifted
+        # infra/arm/azuredeploy.json is a compiled artifact. If it does not match what the
+        # Bicep produces, the repository is shipping a template that no longer reflects its
+        # source, and a Portal or Template Spec deployment would apply the stale version.
+        #
+        # The `_generator` blocks are stripped before comparing: they record the Bicep CLI
+        # version and a templateHash derived from it, so every compiler release would
+        # otherwise report drift that does not exist. What we care about is the template
+        # itself — resources, parameters and outputs.
+        run: |
+          strip_generator() {
+            jq -S 'walk(if type == "object" and has("_generator") then del(._generator) else . end)' "$1"
+          }
+          strip_generator infra/arm/azuredeploy.json > /tmp/committed.norm.json
+          strip_generator /tmp/azuredeploy.json      > /tmp/built.norm.json
+
+          if ! diff -u /tmp/committed.norm.json /tmp/built.norm.json > /tmp/drift.diff; then
+            echo "::error file=infra/arm/azuredeploy.json::infra/arm/azuredeploy.json is out of date with infra/bicep/. Recompile it and commit the result."
+            echo ""
+            echo "Run this locally and commit the change:"
+            echo "  az bicep build --file infra/bicep/finops-dashboard/main.bicep --outfile infra/arm/azuredeploy.json"
+            echo ""
+            echo "----- drift (compiler metadata excluded) -----"
+            head -n 200 /tmp/drift.diff
+            exit 1
+          fi
+          echo "azuredeploy.json is in sync with the Bicep source."
+
+      - name: Lint Bicep
+        # Compilation already fails on errors; this surfaces warnings in the job summary.
+        run: |
+          az bicep build \
+            --file infra/bicep/finops-dashboard/main.bicep \
+            --stdout > /dev/null
+
+  mcp:
+    name: Azure Pricing MCP — tests
+    needs: changes
+    if: needs.changes.outputs.mcp == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp/azure-pricing-mcp
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install the package with test dependencies
+        # pytest and the async plugins live in the `dev` extra, not the base install.
+        run: pip install -e ".[dev]"
+
+      - name: Audit production dependencies
+        # pip-audit reports vulnerable packages but does not expose a reliable severity
+        # threshold across its advisory services, so this stricter gate rejects every
+        # known vulnerability in the runtime dependency set.
+        run: pip-audit --requirement requirements.txt --strict --desc off
+
+      - name: Run tests
+        run: pytest
+
+  docs:
+    name: Documentation — link check
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Check documentation links
+        # Resolves every relative link in every tracked Markdown file. The
+        # documentation tree was consolidated in one large mechanical rewrite,
+        # which is exactly the kind of change where a bad find-and-replace hides.
+        run: node scripts/check-doc-links.mjs
+
+  secrets:
+    name: Public-readiness and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks needs history to scan the commits a pull request introduces.
+          fetch-depth: 0
+
+      - name: Public tracked-tree policy
+        run: node scripts/check-public-readiness.mjs
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The action posts its findings as pull request review comments, which
+          # needs `pull-requests: write`. Dependabot-triggered runs always get a
+          # read-only token no matter what this workflow requests, so leaving
+          # comments enabled makes the job fail with a 403 on every Dependabot
+          # pull request. Findings still fail the job and appear in the summary.
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  # A single required status check to protect `main` with. It succeeds when every job either
+  # passed or was correctly skipped, and fails if any job failed or was cancelled.
+  #
+  # `changes` is included deliberately. The three build jobs are gated on its outputs, so if
+  # it fails they are *skipped* rather than failed — and without it listed here this job would
+  # report success having validated nothing at all.
+  ci:
+    name: CI
+    if: always()
+    needs: [changes, app, infra, mcp, docs, secrets]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no job failed
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "Job results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::At least one CI job did not succeed."
+              exit 1
+            fi
+          done
+          echo "All CI jobs succeeded or were skipped."

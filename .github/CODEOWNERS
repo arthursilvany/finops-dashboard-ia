@@ -1,0 +1,31 @@
+# CODEOWNERS — reviewers requested automatically on matching paths.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# The last matching pattern wins, so the more specific entries below override the default.
+
+# Default owner for everything in the repository
+*                                   @arthursilvany
+
+# Infrastructure — deployment-affecting, always review deliberately.
+# infra/arm/azuredeploy.json is compiled output; it must be regenerated from Bicep, never
+# hand-edited.
+/infra/                             @arthursilvany
+/infra/arm/                         @arthursilvany
+/infra/bicep/                       @arthursilvany
+
+# CI, release automation, and repository governance
+/.github/                           @arthursilvany
+/.github/workflows/                 @arthursilvany
+
+# Azure Pricing MCP server
+/mcp/                               @arthursilvany
+
+# Security-sensitive application code: the sign-in and authorization layers
+/apps/finops-dashboard/src/proxy.ts               @arthursilvany
+/apps/finops-dashboard/src/lib/auth-policy.ts     @arthursilvany
+/apps/finops-dashboard/scripts/setup-entra-app.ps1 @arthursilvany
+
+# Community health files and licensing
+/LICENSE                            @arthursilvany
+/SECURITY.md                        @arthursilvany
+/CODE_OF_CONDUCT.md                 @arthursilvany

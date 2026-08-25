@@ -1,0 +1,2293 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "410390983569517192"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources. Defaults to the resource group location."
+      }
+    },
+    "projectName": {
+      "type": "string",
+      "defaultValue": "finops-dashboard",
+      "minLength": 3,
+      "maxLength": 20,
+      "metadata": {
+        "description": "Project name used as a prefix for resource names. Lowercase alphanumeric and hyphens only."
+      }
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "prod",
+      "allowedValues": [
+        "dev",
+        "poc",
+        "staging",
+        "prod"
+      ],
+      "metadata": {
+        "description": "Deployment environment tag (e.g., dev, staging, prod)."
+      }
+    },
+    "dashboardImageName": {
+      "type": "string",
+      "defaultValue": "finops-dashboard:latest",
+      "metadata": {
+        "description": "Dashboard container image name and tag stored in ACR (e.g., finops-dashboard:latest)."
+      }
+    },
+    "mcpImageName": {
+      "type": "string",
+      "defaultValue": "azure-pricing-mcp:latest",
+      "metadata": {
+        "description": "MCP pricing server image name and tag stored in ACR (e.g., azure-pricing-mcp:latest)."
+      }
+    },
+    "deployMcp": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether to deploy the optional pricing MCP server as an internal Container App."
+      }
+    },
+    "skuAdvisorImageName": {
+      "type": "string",
+      "defaultValue": "azure-sku-advisor:latest",
+      "metadata": {
+        "description": "Azure SKU Advisor API image name and tag stored in ACR (e.g., azure-sku-advisor:latest)."
+      }
+    },
+    "deploySkuAdvisor": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether to deploy the optional Azure SKU Advisor API as an internal Container App. It backs the /sku-advisor view; without it that view falls back to a workspace export or sample data."
+      }
+    },
+    "skuAdvisorApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Shared key the dashboard sends to the SKU Advisor API as x-api-key. Leave empty to run key-less behind internal ingress."
+      }
+    },
+    "skuAdvisorAllowLiveReads": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Allow the SKU Advisor to read the Azure estate live with its Managed Identity (Resource Graph, quota, Advisor, Log Analytics). Off by default."
+      }
+    },
+    "skuAdvisorAllowAiNarrative": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Allow the SKU Advisor grounded AI narrative. Billable Azure OpenAI calls plus an egress of estate facts. Off by default."
+      }
+    },
+    "skuAdvisorRegions": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Comma-separated Azure regions the estate runs in, e.g. \"uksouth,swedencentral\". Live discovery is filtered by region, and when none is given the advisor falls back to its own pricing region list — an estate outside it then reports zero workloads with no error. Leave empty only when the advisor is configured with the right regions itself."
+      }
+    },
+    "skuAdvisorLiveTelemetry": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Ask the SKU Advisor to source rightsizing telemetry (90-day P99 CPU/memory/IOPS busy-signal) live from Azure Monitor platform metrics. Requires skuAdvisorAllowLiveReads and Reader/Monitoring Reader for the Managed Identity on the estate subscription. Off by default."
+      }
+    },
+    "containerCpu": {
+      "type": "string",
+      "defaultValue": "0.5",
+      "allowedValues": [
+        "0.25",
+        "0.5",
+        "1.0",
+        "2.0"
+      ],
+      "metadata": {
+        "description": "CPU allocation for the dashboard container (vCPU)."
+      }
+    },
+    "containerMemory": {
+      "type": "string",
+      "defaultValue": "1Gi",
+      "allowedValues": [
+        "0.5Gi",
+        "1Gi",
+        "2Gi",
+        "4Gi"
+      ],
+      "metadata": {
+        "description": "Memory allocation for the dashboard container."
+      }
+    },
+    "minReplicas": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 0,
+      "maxValue": 10,
+      "metadata": {
+        "description": "Minimum number of container replicas (0 = scale to zero when idle)."
+      }
+    },
+    "maxReplicas": {
+      "type": "int",
+      "defaultValue": 3,
+      "minValue": 1,
+      "maxValue": 30,
+      "metadata": {
+        "description": "Maximum number of container replicas."
+      }
+    },
+    "acrSku": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "allowedValues": [
+        "Basic",
+        "Standard",
+        "Premium"
+      ],
+      "metadata": {
+        "description": "Azure Container Registry SKU."
+      }
+    },
+    "grantAcrPull": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the AcrPull role assignment for the Container App identity. Requires Owner or User Access Administrator on the resource group. Set to false when deploying with Contributor only, and grant AcrPull manually afterwards."
+      }
+    },
+    "logRetentionDays": {
+      "type": "int",
+      "defaultValue": 30,
+      "minValue": 30,
+      "maxValue": 730,
+      "metadata": {
+        "description": "Log Analytics Workspace retention period in days."
+      }
+    },
+    "analyticsBackend": {
+      "type": "string",
+      "defaultValue": "ADX",
+      "allowedValues": [
+        "None",
+        "ADX",
+        "Fabric",
+        "Foundry"
+      ],
+      "metadata": {
+        "description": "Analytics backend the FinOps Dashboard will query for cost data.\n- None: No external backend (mock/demo mode)\n- ADX:  Azure Data Explorer / Kusto\n- Fabric: Microsoft Fabric Real-Time Intelligence (Eventhouse / KQL Database)\n- Foundry: Azure AI Foundry (AI-assisted analytics)\n"
+      }
+    },
+    "adxClusterUri": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure Data Explorer cluster URI (e.g., https://<cluster>.<region>.kusto.windows.net). Required when analyticsBackend=ADX."
+      }
+    },
+    "adxDatabaseName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "ADX database name to query. Required when analyticsBackend=ADX."
+      }
+    },
+    "adxQueryTimeoutSeconds": {
+      "type": "int",
+      "defaultValue": 30,
+      "metadata": {
+        "description": "Optional: ADX query timeout in seconds."
+      }
+    },
+    "azureSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]",
+      "metadata": {
+        "description": "Subscription ID Azure Advisor recommendations are queried from for the Agentic FinOps view. Defaults to the deployment subscription. Falls back to mock data when empty. Grant the Managed Identity Reader on this subscription after deploying."
+      }
+    },
+    "fabricQueryUri": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Microsoft Fabric Eventhouse query URI. Used when analyticsBackend=Fabric."
+      }
+    },
+    "fabricWorkspaceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Microsoft Fabric workspace ID (alternative to fabricQueryUri). Used when analyticsBackend=Fabric."
+      }
+    },
+    "fabricKqlDatabaseName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Microsoft Fabric KQL database name. Used with fabricWorkspaceId."
+      }
+    },
+    "foundryProjectEndpoint": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure AI Foundry project endpoint (Projects API). Used when analyticsBackend=Foundry."
+      }
+    },
+    "foundryProjectConnectionString": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure AI Foundry project connection string (optional, used with AIProjectClient)."
+      }
+    },
+    "foundryInferenceEndpoint": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure AI Foundry inference endpoint (Inference/Deployments API)."
+      }
+    },
+    "foundryModelDeploymentName": {
+      "type": "string",
+      "defaultValue": "gpt-4o",
+      "metadata": {
+        "description": "Azure AI Foundry model deployment name (e.g., gpt-4o)."
+      }
+    },
+    "foundryApiVersion": {
+      "type": "string",
+      "defaultValue": "2025-01-01-preview",
+      "metadata": {
+        "description": "Azure AI Foundry API version."
+      }
+    },
+    "azureOpenaiEndpoint": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure OpenAI endpoint. Use foundryInferenceEndpoint for new deployments."
+      }
+    },
+    "azureOpenaiDeployment": {
+      "type": "string",
+      "defaultValue": "gpt-4o",
+      "metadata": {
+        "description": "Azure OpenAI model deployment name."
+      }
+    },
+    "authMode": {
+      "type": "string",
+      "defaultValue": "ManagedIdentity",
+      "allowedValues": [
+        "ManagedIdentity",
+        "ServicePrincipal",
+        "ApiKey"
+      ],
+      "metadata": {
+        "description": "Authentication mode for connecting to backend services.\n- ManagedIdentity: Recommended. Uses the app's User-Assigned Managed Identity.\n- ServicePrincipal: Use an Entra ID app registration with client secret.\n- ApiKey: Use a static API key. NOT recommended for production.\n"
+      }
+    },
+    "spTenantId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Service Principal tenant ID. Required when authMode=ServicePrincipal."
+      }
+    },
+    "spClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Service Principal client ID (application ID). Required when authMode=ServicePrincipal."
+      }
+    },
+    "spClientSecret": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Service Principal client secret. Required when authMode=ServicePrincipal."
+      }
+    },
+    "apiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Static API key for backend authentication. Required when authMode=ApiKey."
+      }
+    },
+    "enableEasyAuth": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Protect the public ingress with Container Apps built-in authentication (Easy Auth) using Microsoft Entra ID. Enabled by default: without it every /api/* route is reachable anonymously. Requires an existing Entra ID app registration (see scripts/setup-entra-app.ps1). Set to false only when an equivalent control (WAF, private ingress) sits in front of the app."
+      }
+    },
+    "easyAuthClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Application (client) ID of the Entra ID app registration used by Easy Auth. Required when enableEasyAuth=true."
+      }
+    },
+    "easyAuthClientSecret": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Client secret of the Entra ID app registration used by Easy Auth. Required when enableEasyAuth=true."
+      }
+    },
+    "easyAuthTenantId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Tenant ID that issues the tokens accepted by Easy Auth. Leave empty to use the deployment tenant."
+      }
+    },
+    "easyAuthAllowedAudiences": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Additional token audiences accepted by Easy Auth, beyond api://<clientId>."
+      }
+    },
+    "authDefaultRole": {
+      "type": "string",
+      "defaultValue": "none",
+      "allowedValues": [
+        "none",
+        "Reader"
+      ],
+      "metadata": {
+        "description": "Role granted to a signed-in user that has no FinOps.Reader/FinOps.Admin app role assigned. \"none\" denies access (recommended), \"Reader\" grants read-only access to every user who can sign in to the tenant."
+      }
+    },
+    "deployKeyVault": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Store application secrets in a Key Vault and have the Container App reference them by URI, instead of holding literal values on the app. Rotating a secret then becomes a vault operation with no redeployment."
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Key Vault name. Leave empty to derive a deterministic name that fits the 24-character limit."
+      }
+    },
+    "keyVaultPurgeProtection": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Block permanent deletion of the vault and its secrets during the retention window. Irreversible once enabled, so it defaults to false; turn it on for production."
+      }
+    },
+    "easyAuthClientSecretUri": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Versionless Key Vault URI of an Easy Auth client secret that already exists in a vault you manage. When set, the secret is never passed to this deployment and is not written to the vault it creates. You must grant the deployment identity \"Key Vault Secrets User\" on that vault yourself."
+      }
+    },
+    "additionalTags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Additional resource tags to apply to all resources."
+      }
+    }
+  },
+  "variables": {
+    "commonTags": "[union(createObject('environment', parameters('environment'), 'managedBy', 'bicep', 'project', parameters('projectName'), 'analyticsBackend', parameters('analyticsBackend')), parameters('additionalTags'))]",
+    "byoEasyAuthSecret": "[not(empty(parameters('easyAuthClientSecretUri')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "identities-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "6727753750597583271"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[format('mi-{0}-{1}', parameters('projectName'), parameters('environment'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "userAssignedIdentityId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('mi-{0}-{1}', parameters('projectName'), parameters('environment')))]"
+            },
+            "userAssignedIdentityClientId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('mi-{0}-{1}', parameters('projectName'), parameters('environment'))), '2023-01-31').clientId]"
+            },
+            "userAssignedIdentityPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('mi-{0}-{1}', parameters('projectName'), parameters('environment'))), '2023-01-31').principalId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "acr-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "acrSku": {
+            "value": "[parameters('acrSku')]"
+          },
+          "pullPrincipalId": "[if(parameters('grantAcrPull'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityPrincipalId.value), createObject('value', ''))]",
+          "tags": {
+            "value": "[variables('commonTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "7004267467105961955"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "acrSku": {
+              "type": "string",
+              "defaultValue": "Basic",
+              "allowedValues": [
+                "Basic",
+                "Standard",
+                "Premium"
+              ],
+              "metadata": {
+                "description": "ACR pricing tier."
+              }
+            },
+            "pullPrincipalId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Principal ID of the User-Assigned Managed Identity that pulls images. When set, an AcrPull role assignment is created on this registry."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "acrName": "[format('acr{0}{1}', replace(parameters('projectName'), '-', ''), parameters('environment'))]",
+            "acrPullRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ContainerRegistry/registries",
+              "apiVersion": "2023-07-01",
+              "name": "[variables('acrName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('acrSku')]"
+              },
+              "properties": {
+                "adminUserEnabled": false,
+                "policies": "[if(equals(parameters('acrSku'), 'Premium'), createObject('retentionPolicy', createObject('status', 'enabled', 'days', 7)), createObject())]"
+              },
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "condition": "[not(empty(parameters('pullPrincipalId')))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
+              "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), parameters('pullPrincipalId'), variables('acrPullRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('acrPullRoleDefinitionId')]",
+                "principalId": "[parameters('pullPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "acrLoginServer": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-07-01').loginServer]"
+            },
+            "acrId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
+            },
+            "acrName": {
+              "type": "string",
+              "value": "[variables('acrName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "environment-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "logRetentionDays": {
+            "value": "[parameters('logRetentionDays')]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "17276620272703469872"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "logRetentionDays": {
+              "type": "int",
+              "defaultValue": 30,
+              "metadata": {
+                "description": "Log Analytics retention in days."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "containerAppEnvName": "[format('env-{0}-{1}', parameters('projectName'), parameters('environment'))]",
+            "logAnalyticsWorkspaceName": "[format('log-{0}-{1}', parameters('projectName'), parameters('environment'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2022-10-01",
+              "name": "[variables('logAnalyticsWorkspaceName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": "[parameters('logRetentionDays')]"
+              },
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.App/managedEnvironments",
+              "apiVersion": "2024-03-01",
+              "name": "[variables('containerAppEnvName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "appLogsConfiguration": {
+                  "destination": "log-analytics",
+                  "logAnalyticsConfiguration": {
+                    "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsWorkspaceName')), '2022-10-01').customerId]",
+                    "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsWorkspaceName')), '2022-10-01').primarySharedKey]"
+                  }
+                }
+              },
+              "tags": "[parameters('tags')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsWorkspaceName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "environmentId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/managedEnvironments', variables('containerAppEnvName'))]"
+            },
+            "environmentName": {
+              "type": "string",
+              "value": "[variables('containerAppEnvName')]"
+            },
+            "defaultDomain": {
+              "type": "string",
+              "metadata": {
+                "description": "Suffix used to build the FQDN of apps in this environment. Internal-only apps are reachable at https://<app>.internal.<defaultDomain>."
+              },
+              "value": "[reference(resourceId('Microsoft.App/managedEnvironments', variables('containerAppEnvName')), '2024-03-01').defaultDomain]"
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsWorkspaceName'))]"
+            },
+            "logAnalyticsWorkspaceName": {
+              "type": "string",
+              "value": "[variables('logAnalyticsWorkspaceName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployMcp')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "mcp-server-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "containerAppEnvironmentId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.environmentId.value]"
+          },
+          "userAssignedIdentityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityId.value]"
+          },
+          "userAssignedIdentityClientId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
+          },
+          "containerImageUri": {
+            "value": "[format('{0}/{1}', reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value, parameters('mcpImageName'))]"
+          },
+          "acrLoginServer": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "17239955302319107262"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "containerAppEnvironmentId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Container Apps Environment."
+              }
+            },
+            "userAssignedIdentityId": {
+              "type": "string",
+              "metadata": {
+                "description": "User-Assigned Managed Identity used to pull from ACR and to call Azure management APIs (Spot pricing tools)."
+              }
+            },
+            "userAssignedIdentityClientId": {
+              "type": "string"
+            },
+            "containerImageUri": {
+              "type": "string"
+            },
+            "acrLoginServer": {
+              "type": "string"
+            },
+            "containerCpu": {
+              "type": "string",
+              "defaultValue": "0.5"
+            },
+            "containerMemory": {
+              "type": "string",
+              "defaultValue": "1Gi"
+            },
+            "minReplicas": {
+              "type": "int",
+              "defaultValue": 1,
+              "metadata": {
+                "description": "The MCP client keeps a session; scaling to zero would add a cold start to every pricing lookup."
+              }
+            },
+            "maxReplicas": {
+              "type": "int",
+              "defaultValue": 2
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "containerAppName": "[format('app-{0}-mcp-{1}', parameters('projectName'), parameters('environment'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/containerApps",
+              "apiVersion": "2024-03-01",
+              "name": "[variables('containerAppName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('userAssignedIdentityId'))]": {}
+                }
+              },
+              "properties": {
+                "managedEnvironmentId": "[parameters('containerAppEnvironmentId')]",
+                "configuration": {
+                  "activeRevisionsMode": "Single",
+                  "ingress": {
+                    "external": false,
+                    "targetPort": 8080,
+                    "transport": "auto",
+                    "allowInsecure": false,
+                    "traffic": [
+                      {
+                        "latestRevision": true,
+                        "weight": 100
+                      }
+                    ]
+                  },
+                  "registries": [
+                    {
+                      "server": "[parameters('acrLoginServer')]",
+                      "identity": "[parameters('userAssignedIdentityId')]"
+                    }
+                  ]
+                },
+                "template": {
+                  "containers": [
+                    {
+                      "name": "azure-pricing-mcp",
+                      "image": "[parameters('containerImageUri')]",
+                      "resources": {
+                        "cpu": "[json(parameters('containerCpu'))]",
+                        "memory": "[parameters('containerMemory')]"
+                      },
+                      "env": [
+                        {
+                          "name": "MCP_HOST",
+                          "value": "0.0.0.0"
+                        },
+                        {
+                          "name": "MCP_PORT",
+                          "value": "8080"
+                        },
+                        {
+                          "name": "AZURE_CLIENT_ID",
+                          "value": "[parameters('userAssignedIdentityClientId')]"
+                        }
+                      ]
+                    }
+                  ],
+                  "scale": {
+                    "minReplicas": "[parameters('minReplicas')]",
+                    "maxReplicas": "[parameters('maxReplicas')]",
+                    "rules": []
+                  }
+                }
+              },
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "mcpServerUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Internal URL of the MCP server. Only resolvable from inside the Container Apps Environment."
+              },
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('containerAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+            },
+            "containerAppName": {
+              "type": "string",
+              "value": "[variables('containerAppName')]"
+            },
+            "containerAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/containerApps', variables('containerAppName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'environment-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
+      ]
+    },
+    {
+      "condition": "[parameters('deploySkuAdvisor')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "sku-advisor-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "containerAppEnvironmentId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.environmentId.value]"
+          },
+          "userAssignedIdentityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityId.value]"
+          },
+          "userAssignedIdentityClientId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
+          },
+          "containerImageUri": {
+            "value": "[format('{0}/{1}', reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value, parameters('skuAdvisorImageName'))]"
+          },
+          "acrLoginServer": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
+          },
+          "apiKey": {
+            "value": "[parameters('skuAdvisorApiKey')]"
+          },
+          "allowLiveReads": {
+            "value": "[parameters('skuAdvisorAllowLiveReads')]"
+          },
+          "allowAiNarrative": {
+            "value": "[parameters('skuAdvisorAllowAiNarrative')]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "2400718137203124661"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "containerAppEnvironmentId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Container Apps Environment."
+              }
+            },
+            "userAssignedIdentityId": {
+              "type": "string",
+              "metadata": {
+                "description": "User-Assigned Managed Identity used to pull from ACR and, when live reads are enabled, to read the Azure estate."
+              }
+            },
+            "userAssignedIdentityClientId": {
+              "type": "string"
+            },
+            "containerImageUri": {
+              "type": "string"
+            },
+            "acrLoginServer": {
+              "type": "string"
+            },
+            "containerCpu": {
+              "type": "string",
+              "defaultValue": "0.5"
+            },
+            "containerMemory": {
+              "type": "string",
+              "defaultValue": "1Gi"
+            },
+            "apiKey": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Shared key the dashboard sends as x-api-key. Empty leaves the service key-less, which is only acceptable behind internal ingress."
+              }
+            },
+            "allowLiveReads": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Allow Managed-Identity-backed live reads of the Azure estate (Resource Graph, quota, Advisor, Log Analytics)."
+              }
+            },
+            "allowAiNarrative": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Allow the grounded AI narrative. Billable Azure OpenAI calls plus an egress of estate facts."
+              }
+            },
+            "telemetrySource": {
+              "type": "string",
+              "defaultValue": "metrics",
+              "allowedValues": [
+                "metrics",
+                "loganalytics"
+              ],
+              "metadata": {
+                "description": "Source for live utilization telemetry when live_telemetry is requested. \"metrics\" reads host-emitted Azure Monitor platform metrics (Percentage CPU, Available Memory Bytes; no guest agent needed) over a 90-day P99 window. \"loganalytics\" reads guest Perf counters from a Log Analytics workspace instead (needs SKU_ADVISOR_LA_WORKSPACE_ID)."
+              }
+            },
+            "cacheTtlSeconds": {
+              "type": "int",
+              "defaultValue": 900,
+              "metadata": {
+                "description": "Recommendation cache TTL in seconds. The advisor calls the public Retail Prices API on a miss."
+              }
+            },
+            "minReplicas": {
+              "type": "int",
+              "defaultValue": 1,
+              "metadata": {
+                "description": "A cold start would add the full pricing pipeline to the first page load, so the service does not scale to zero."
+              }
+            },
+            "maxReplicas": {
+              "type": "int",
+              "defaultValue": 2
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "containerAppNameCandidate": "[format('app-{0}-skuadv-{1}', parameters('projectName'), parameters('environment'))]",
+            "containerAppNameTruncated": "[take(variables('containerAppNameCandidate'), 32)]",
+            "containerAppName": "[if(endsWith(variables('containerAppNameTruncated'), '-'), take(variables('containerAppNameTruncated'), 31), variables('containerAppNameTruncated'))]",
+            "hasApiKey": "[not(empty(parameters('apiKey')))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/containerApps",
+              "apiVersion": "2024-03-01",
+              "name": "[variables('containerAppName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('userAssignedIdentityId'))]": {}
+                }
+              },
+              "properties": {
+                "managedEnvironmentId": "[parameters('containerAppEnvironmentId')]",
+                "configuration": {
+                  "activeRevisionsMode": "Single",
+                  "ingress": {
+                    "external": false,
+                    "targetPort": 8080,
+                    "transport": "auto",
+                    "allowInsecure": false,
+                    "traffic": [
+                      {
+                        "latestRevision": true,
+                        "weight": 100
+                      }
+                    ]
+                  },
+                  "registries": [
+                    {
+                      "server": "[parameters('acrLoginServer')]",
+                      "identity": "[parameters('userAssignedIdentityId')]"
+                    }
+                  ],
+                  "secrets": "[if(variables('hasApiKey'), createArray(createObject('name', 'sku-advisor-api-key', 'value', parameters('apiKey'))), createArray())]"
+                },
+                "template": {
+                  "containers": [
+                    {
+                      "name": "azure-sku-advisor",
+                      "image": "[parameters('containerImageUri')]",
+                      "resources": {
+                        "cpu": "[json(parameters('containerCpu'))]",
+                        "memory": "[parameters('containerMemory')]"
+                      },
+                      "env": "[concat(createArray(createObject('name', 'SKU_ADVISOR_ALLOW_LIVE', 'value', string(parameters('allowLiveReads'))), createObject('name', 'SKU_ADVISOR_ALLOW_AI', 'value', string(parameters('allowAiNarrative'))), createObject('name', 'SKU_ADVISOR_TELEMETRY_SOURCE', 'value', parameters('telemetrySource')), createObject('name', 'SKU_ADVISOR_CACHE_TTL', 'value', string(parameters('cacheTtlSeconds'))), createObject('name', 'SKU_ADVISOR_CORS_ORIGINS', 'value', ''), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('userAssignedIdentityClientId'))), if(variables('hasApiKey'), createArray(createObject('name', 'SKU_ADVISOR_API_KEY', 'secretRef', 'sku-advisor-api-key')), createArray()))]",
+                      "probes": [
+                        {
+                          "type": "Liveness",
+                          "httpGet": {
+                            "path": "/health",
+                            "port": 8080
+                          },
+                          "initialDelaySeconds": 10,
+                          "periodSeconds": 30
+                        }
+                      ]
+                    }
+                  ],
+                  "scale": {
+                    "minReplicas": "[parameters('minReplicas')]",
+                    "maxReplicas": "[parameters('maxReplicas')]",
+                    "rules": []
+                  }
+                }
+              },
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "skuAdvisorUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Internal URL of the SKU Advisor API. Only resolvable from inside the Container Apps Environment."
+              },
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('containerAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+            },
+            "containerAppName": {
+              "type": "string",
+              "value": "[variables('containerAppName')]"
+            },
+            "containerAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/containerApps', variables('containerAppName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'environment-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployKeyVault')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "keyvault-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "keyVaultName": {
+            "value": "[parameters('keyVaultName')]"
+          },
+          "enablePurgeProtection": {
+            "value": "[parameters('keyVaultPurgeProtection')]"
+          },
+          "readerPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityPrincipalId.value]"
+          },
+          "easyAuthClientSecret": "[if(variables('byoEasyAuthSecret'), createObject('value', ''), createObject('value', parameters('easyAuthClientSecret')))]",
+          "spClientSecret": {
+            "value": "[parameters('spClientSecret')]"
+          },
+          "apiKey": {
+            "value": "[parameters('apiKey')]"
+          },
+          "foundryProjectConnectionString": {
+            "value": "[parameters('foundryProjectConnectionString')]"
+          },
+          "storeEasyAuthClientSecret": {
+            "value": "[and(and(not(variables('byoEasyAuthSecret')), parameters('enableEasyAuth')), not(empty(parameters('easyAuthClientSecret'))))]"
+          },
+          "storeSpClientSecret": {
+            "value": "[and(equals(parameters('authMode'), 'ServicePrincipal'), not(empty(parameters('spClientSecret'))))]"
+          },
+          "storeApiKey": {
+            "value": "[and(equals(parameters('authMode'), 'ApiKey'), not(empty(parameters('apiKey'))))]"
+          },
+          "storeFoundryConnectionString": {
+            "value": "[and(equals(parameters('analyticsBackend'), 'Foundry'), not(empty(parameters('foundryProjectConnectionString'))))]"
+          },
+          "skuAdvisorApiKey": {
+            "value": "[parameters('skuAdvisorApiKey')]"
+          },
+          "storeSkuAdvisorApiKey": {
+            "value": "[not(empty(parameters('skuAdvisorApiKey')))]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "7064941382565013546"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "keyVaultName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Vault name. Leave empty to derive a deterministic name that fits the 24-character limit."
+              }
+            },
+            "readerPrincipalId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Principal ID of the identity that reads the secrets. When set, a \"Key Vault Secrets User\" role assignment is created on this vault."
+              }
+            },
+            "enablePurgeProtection": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Block permanent deletion of the vault and its secrets during the retention window. Irreversible once enabled."
+              }
+            },
+            "softDeleteRetentionInDays": {
+              "type": "int",
+              "defaultValue": 90,
+              "minValue": 7,
+              "maxValue": 90,
+              "metadata": {
+                "description": "Days a soft-deleted vault or secret is recoverable."
+              }
+            },
+            "easyAuthClientSecret": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Entra ID app registration client secret used by Easy Auth. Stored only when storeEasyAuthClientSecret is true."
+              }
+            },
+            "spClientSecret": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Service principal client secret used when authMode=ServicePrincipal. Stored only when storeSpClientSecret is true."
+              }
+            },
+            "apiKey": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Static backend API key used when authMode=ApiKey. Stored only when storeApiKey is true."
+              }
+            },
+            "foundryProjectConnectionString": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Azure AI Foundry project connection string. Stored only when storeFoundryConnectionString is true."
+              }
+            },
+            "skuAdvisorApiKey": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Shared key the dashboard presents to the SKU Advisor service. Stored only when storeSkuAdvisorApiKey is true."
+              }
+            },
+            "storeEasyAuthClientSecret": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Write the Easy Auth client secret to the vault and return its URI."
+              }
+            },
+            "storeSpClientSecret": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Write the service principal client secret to the vault and return its URI."
+              }
+            },
+            "storeApiKey": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Write the backend API key to the vault and return its URI."
+              }
+            },
+            "storeFoundryConnectionString": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Write the Foundry connection string to the vault and return its URI."
+              }
+            },
+            "storeSkuAdvisorApiKey": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Write the SKU Advisor API key to the vault and return its URI."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "generatedName": "[format('kv-{0}{1}-{2}', take(replace(parameters('projectName'), '-', ''), 10), take(parameters('environment'), 4), take(uniqueString(resourceGroup().id), 6))]",
+            "vaultName": "[if(empty(parameters('keyVaultName')), variables('generatedName'), parameters('keyVaultName'))]",
+            "secretsUserRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2023-07-01",
+              "name": "[variables('vaultName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "sku": {
+                  "family": "A",
+                  "name": "standard"
+                },
+                "tenantId": "[subscription().tenantId]",
+                "enableRbacAuthorization": true,
+                "enableSoftDelete": true,
+                "softDeleteRetentionInDays": "[parameters('softDeleteRetentionInDays')]",
+                "enablePurgeProtection": "[if(parameters('enablePurgeProtection'), true(), null())]",
+                "publicNetworkAccess": "Enabled",
+                "networkAcls": {
+                  "bypass": "AzureServices",
+                  "defaultAction": "Allow"
+                }
+              },
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "condition": "[not(empty(parameters('readerPrincipalId')))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]",
+              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), parameters('readerPrincipalId'), variables('secretsUserRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('secretsUserRoleDefinitionId')]",
+                "principalId": "[parameters('readerPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('storeEasyAuthClientSecret')]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('vaultName'), 'easy-auth-client-secret')]",
+              "properties": {
+                "value": "[parameters('easyAuthClientSecret')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('storeSpClientSecret')]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('vaultName'), 'sp-client-secret')]",
+              "properties": {
+                "value": "[parameters('spClientSecret')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('storeApiKey')]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('vaultName'), 'api-key')]",
+              "properties": {
+                "value": "[parameters('apiKey')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('storeFoundryConnectionString')]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('vaultName'), 'foundry-connection-string')]",
+              "properties": {
+                "value": "[parameters('foundryProjectConnectionString')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('storeSkuAdvisorApiKey')]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('vaultName'), 'sku-advisor-api-key')]",
+              "properties": {
+                "value": "[parameters('skuAdvisorApiKey')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "keyVaultId": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault resource ID."
+              },
+              "value": "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
+            },
+            "keyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault name."
+              },
+              "value": "[variables('vaultName')]"
+            },
+            "keyVaultUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault base URI."
+              },
+              "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), '2023-07-01').vaultUri]"
+            },
+            "easyAuthClientSecretUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Versionless URI of the Easy Auth client secret, or empty when it was not stored."
+              },
+              "value": "[if(not(parameters('storeEasyAuthClientSecret')), '', format('{0}secrets/{1}', reference(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), '2023-07-01').vaultUri, 'easy-auth-client-secret'))]"
+            },
+            "spClientSecretUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Versionless URI of the service principal client secret, or empty when it was not stored."
+              },
+              "value": "[if(not(parameters('storeSpClientSecret')), '', format('{0}secrets/{1}', reference(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), '2023-07-01').vaultUri, 'sp-client-secret'))]"
+            },
+            "apiKeyUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Versionless URI of the backend API key, or empty when it was not stored."
+              },
+              "value": "[if(not(parameters('storeApiKey')), '', format('{0}secrets/{1}', reference(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), '2023-07-01').vaultUri, 'api-key'))]"
+            },
+            "foundryConnectionStringUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Versionless URI of the Foundry connection string, or empty when it was not stored."
+              },
+              "value": "[if(not(parameters('storeFoundryConnectionString')), '', format('{0}secrets/{1}', reference(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), '2023-07-01').vaultUri, 'foundry-connection-string'))]"
+            },
+            "skuAdvisorApiKeyUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Versionless URI of the SKU Advisor API key (empty when not stored)."
+              },
+              "value": "[if(not(parameters('storeSkuAdvisorApiKey')), '', format('{0}secrets/{1}', reference(resourceId('Microsoft.KeyVault/vaults', variables('vaultName')), '2023-07-01').vaultUri, 'sku-advisor-api-key'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "container-app-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "projectName": {
+            "value": "[parameters('projectName')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "containerAppEnvironmentId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.environmentId.value]"
+          },
+          "userAssignedIdentityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityId.value]"
+          },
+          "userAssignedIdentityClientId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
+          },
+          "containerImageUri": {
+            "value": "[format('{0}/{1}', reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value, parameters('dashboardImageName'))]"
+          },
+          "acrLoginServer": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
+          },
+          "containerCpu": {
+            "value": "[parameters('containerCpu')]"
+          },
+          "containerMemory": {
+            "value": "[parameters('containerMemory')]"
+          },
+          "minReplicas": {
+            "value": "[parameters('minReplicas')]"
+          },
+          "maxReplicas": {
+            "value": "[parameters('maxReplicas')]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          },
+          "analyticsBackend": {
+            "value": "[parameters('analyticsBackend')]"
+          },
+          "authMode": {
+            "value": "[parameters('authMode')]"
+          },
+          "adxClusterUri": {
+            "value": "[parameters('adxClusterUri')]"
+          },
+          "adxDatabaseName": {
+            "value": "[parameters('adxDatabaseName')]"
+          },
+          "adxQueryTimeoutSeconds": {
+            "value": "[parameters('adxQueryTimeoutSeconds')]"
+          },
+          "azureSubscriptionId": {
+            "value": "[parameters('azureSubscriptionId')]"
+          },
+          "fabricQueryUri": {
+            "value": "[parameters('fabricQueryUri')]"
+          },
+          "fabricWorkspaceId": {
+            "value": "[parameters('fabricWorkspaceId')]"
+          },
+          "fabricKqlDatabaseName": {
+            "value": "[parameters('fabricKqlDatabaseName')]"
+          },
+          "foundryProjectEndpoint": {
+            "value": "[parameters('foundryProjectEndpoint')]"
+          },
+          "foundryProjectConnectionString": {
+            "value": "[parameters('foundryProjectConnectionString')]"
+          },
+          "foundryInferenceEndpoint": {
+            "value": "[parameters('foundryInferenceEndpoint')]"
+          },
+          "foundryModelDeploymentName": {
+            "value": "[parameters('foundryModelDeploymentName')]"
+          },
+          "foundryApiVersion": {
+            "value": "[parameters('foundryApiVersion')]"
+          },
+          "azureOpenaiEndpoint": {
+            "value": "[parameters('azureOpenaiEndpoint')]"
+          },
+          "azureOpenaiDeployment": {
+            "value": "[parameters('azureOpenaiDeployment')]"
+          },
+          "mcpServerUrl": "[if(parameters('deployMcp'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'mcp-server-deployment'), '2025-04-01').outputs.mcpServerUrl.value), createObject('value', 'http://localhost:8080'))]",
+          "skuAdvisorApiUrl": "[if(parameters('deploySkuAdvisor'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'sku-advisor-deployment'), '2025-04-01').outputs.skuAdvisorUrl.value), createObject('value', ''))]",
+          "skuAdvisorApiKey": {
+            "value": "[parameters('skuAdvisorApiKey')]"
+          },
+          "skuAdvisorApiKeyUri": "[if(parameters('deployKeyVault'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.skuAdvisorApiKeyUri.value), createObject('value', ''))]",
+          "skuAdvisorLiveUsage": {
+            "value": "[and(parameters('deploySkuAdvisor'), parameters('skuAdvisorAllowLiveReads'))]"
+          },
+          "skuAdvisorRegions": {
+            "value": "[parameters('skuAdvisorRegions')]"
+          },
+          "skuAdvisorLiveTelemetry": {
+            "value": "[and(and(parameters('deploySkuAdvisor'), parameters('skuAdvisorAllowLiveReads')), parameters('skuAdvisorLiveTelemetry'))]"
+          },
+          "spTenantId": {
+            "value": "[parameters('spTenantId')]"
+          },
+          "spClientId": {
+            "value": "[parameters('spClientId')]"
+          },
+          "spClientSecret": {
+            "value": "[parameters('spClientSecret')]"
+          },
+          "apiKey": {
+            "value": "[parameters('apiKey')]"
+          },
+          "easyAuthClientSecretUri": "[if(variables('byoEasyAuthSecret'), createObject('value', parameters('easyAuthClientSecretUri')), if(parameters('deployKeyVault'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.easyAuthClientSecretUri.value), createObject('value', '')))]",
+          "spClientSecretUri": "[if(parameters('deployKeyVault'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.spClientSecretUri.value), createObject('value', ''))]",
+          "apiKeyUri": "[if(parameters('deployKeyVault'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.apiKeyUri.value), createObject('value', ''))]",
+          "foundryConnectionStringUri": "[if(parameters('deployKeyVault'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.foundryConnectionStringUri.value), createObject('value', ''))]",
+          "enableEasyAuth": {
+            "value": "[parameters('enableEasyAuth')]"
+          },
+          "easyAuthClientId": {
+            "value": "[parameters('easyAuthClientId')]"
+          },
+          "easyAuthClientSecret": {
+            "value": "[parameters('easyAuthClientSecret')]"
+          },
+          "easyAuthTenantId": {
+            "value": "[parameters('easyAuthTenantId')]"
+          },
+          "easyAuthAllowedAudiences": {
+            "value": "[parameters('easyAuthAllowedAudiences')]"
+          },
+          "authDefaultRole": {
+            "value": "[parameters('authDefaultRole')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "9544158036781370937"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "userAssignedIdentityId": {
+              "type": "string"
+            },
+            "userAssignedIdentityClientId": {
+              "type": "string"
+            },
+            "containerImageUri": {
+              "type": "string"
+            },
+            "acrLoginServer": {
+              "type": "string"
+            },
+            "containerAppEnvironmentId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Container Apps Environment (see modules/environment.bicep)."
+              }
+            },
+            "containerCpu": {
+              "type": "string",
+              "defaultValue": "0.5"
+            },
+            "containerMemory": {
+              "type": "string",
+              "defaultValue": "1Gi"
+            },
+            "minReplicas": {
+              "type": "int",
+              "defaultValue": 1
+            },
+            "maxReplicas": {
+              "type": "int",
+              "defaultValue": 3
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            },
+            "analyticsBackend": {
+              "type": "string",
+              "defaultValue": "ADX"
+            },
+            "authMode": {
+              "type": "string",
+              "defaultValue": "ManagedIdentity"
+            },
+            "adxClusterUri": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "adxDatabaseName": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "adxQueryTimeoutSeconds": {
+              "type": "int",
+              "defaultValue": 30
+            },
+            "fabricQueryUri": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "fabricWorkspaceId": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "fabricKqlDatabaseName": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "foundryProjectEndpoint": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "foundryProjectConnectionString": {
+              "type": "securestring",
+              "defaultValue": ""
+            },
+            "foundryInferenceEndpoint": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "foundryModelDeploymentName": {
+              "type": "string",
+              "defaultValue": "gpt-4o"
+            },
+            "foundryApiVersion": {
+              "type": "string",
+              "defaultValue": "2025-01-01-preview"
+            },
+            "azureOpenaiEndpoint": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "azureOpenaiDeployment": {
+              "type": "string",
+              "defaultValue": "gpt-4o"
+            },
+            "mcpServerUrl": {
+              "type": "string",
+              "defaultValue": "http://localhost:8080"
+            },
+            "skuAdvisorApiUrl": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Internal URL of the Azure SKU Advisor API. Empty leaves the /sku-advisor view on its workspace-export / sample fallback."
+              }
+            },
+            "skuAdvisorApiKey": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Shared key sent to the SKU Advisor API as x-api-key."
+              }
+            },
+            "spTenantId": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "spClientId": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "spClientSecret": {
+              "type": "securestring",
+              "defaultValue": ""
+            },
+            "apiKey": {
+              "type": "securestring",
+              "defaultValue": ""
+            },
+            "azureSubscriptionId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Subscription ID Azure Advisor recommendations are queried from for the Agentic FinOps view. Falls back to mock data when empty. The Managed Identity needs Reader on this subscription."
+              }
+            },
+            "easyAuthClientSecretUri": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Versionless Key Vault URI of the Easy Auth client secret. Takes precedence over easyAuthClientSecret."
+              }
+            },
+            "spClientSecretUri": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Versionless Key Vault URI of the service principal client secret. Takes precedence over spClientSecret."
+              }
+            },
+            "apiKeyUri": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Versionless Key Vault URI of the backend API key. Takes precedence over apiKey."
+              }
+            },
+            "foundryConnectionStringUri": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Versionless Key Vault URI of the Foundry connection string. Takes precedence over foundryProjectConnectionString."
+              }
+            },
+            "skuAdvisorApiKeyUri": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Versionless Key Vault URI of the SKU Advisor API key. When set it replaces the literal value, so the key can be rotated in the vault without a redeployment."
+              }
+            },
+            "skuAdvisorLiveUsage": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Ask the SKU Advisor to analyze the real VM inventory rather than its bundled sample. Requires the advisor itself to permit live reads."
+              }
+            },
+            "skuAdvisorRegions": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Comma-separated Azure regions the estate runs in. Live discovery is filtered by region; without this the advisor falls back to its own pricing region list and an estate outside it reports zero workloads."
+              }
+            },
+            "skuAdvisorLiveTelemetry": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Ask the SKU Advisor to source rightsizing telemetry (90-day P99 CPU/memory/IOPS busy-signal) live from Azure Monitor instead of skipping utilization-guided rightsizing. Requires the advisor itself to permit live reads and the Managed Identity to hold Reader/Monitoring Reader on the estate subscription."
+              }
+            },
+            "enableEasyAuth": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Protect the public ingress with Container Apps built-in authentication (Easy Auth) using Microsoft Entra ID. Requires an existing app registration."
+              }
+            },
+            "easyAuthClientId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Application (client) ID of the Entra ID app registration used by Easy Auth."
+              }
+            },
+            "easyAuthClientSecret": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Client secret of the Entra ID app registration used by Easy Auth. Ignored when easyAuthClientSecretUri is set."
+              }
+            },
+            "easyAuthTenantId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Tenant ID that issues the tokens accepted by Easy Auth. Defaults to the deployment tenant."
+              }
+            },
+            "easyAuthAllowedAudiences": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Additional token audiences accepted by Easy Auth, beyond api://<clientId>."
+              }
+            },
+            "authDefaultRole": {
+              "type": "string",
+              "defaultValue": "none",
+              "allowedValues": [
+                "none",
+                "Reader"
+              ],
+              "metadata": {
+                "description": "Role granted to a signed-in user with no FinOps.Reader/FinOps.Admin app role assigned. \"none\" denies access."
+              }
+            }
+          },
+          "variables": {
+            "containerAppName": "[format('app-{0}-{1}', parameters('projectName'), parameters('environment'))]",
+            "easyAuthEnabled": "[parameters('enableEasyAuth')]",
+            "easyAuthIssuerTenantId": "[if(empty(parameters('easyAuthTenantId')), subscription().tenantId, parameters('easyAuthTenantId'))]",
+            "baseEnvVars": [
+              {
+                "name": "NODE_ENV",
+                "value": "production"
+              },
+              {
+                "name": "ANALYTICS_BACKEND",
+                "value": "[parameters('analyticsBackend')]"
+              },
+              {
+                "name": "AUTH_MODE",
+                "value": "[parameters('authMode')]"
+              },
+              {
+                "name": "AZURE_PRICING_MCP_URL",
+                "value": "[parameters('mcpServerUrl')]"
+              },
+              {
+                "name": "SKU_ADVISOR_API_URL",
+                "value": "[parameters('skuAdvisorApiUrl')]"
+              },
+              {
+                "name": "SKU_ADVISOR_LIVE_USAGE",
+                "value": "[string(parameters('skuAdvisorLiveUsage'))]"
+              },
+              {
+                "name": "SKU_ADVISOR_REGIONS",
+                "value": "[parameters('skuAdvisorRegions')]"
+              },
+              {
+                "name": "SKU_ADVISOR_LIVE_TELEMETRY",
+                "value": "[string(parameters('skuAdvisorLiveTelemetry'))]"
+              },
+              {
+                "name": "NEXT_PUBLIC_USE_MOCK",
+                "value": "[if(equals(parameters('analyticsBackend'), 'None'), 'true', 'false')]"
+              },
+              {
+                "name": "NEXT_PUBLIC_DEFAULT_BUDGET",
+                "value": "10000"
+              },
+              {
+                "name": "NEXT_PUBLIC_DEFAULT_MONTHS",
+                "value": "6"
+              },
+              {
+                "name": "NEXT_PUBLIC_DEFAULT_DAYS",
+                "value": "28"
+              },
+              {
+                "name": "AZURE_CLIENT_ID",
+                "value": "[parameters('userAssignedIdentityClientId')]"
+              },
+              {
+                "name": "AUTH_ENABLED",
+                "value": "[if(variables('easyAuthEnabled'), 'true', 'false')]"
+              },
+              {
+                "name": "AUTH_DEFAULT_ROLE",
+                "value": "[parameters('authDefaultRole')]"
+              }
+            ],
+            "adxEnvVars": "[if(equals(parameters('analyticsBackend'), 'ADX'), createArray(createObject('name', 'ADX_CLUSTER_URI', 'value', parameters('adxClusterUri')), createObject('name', 'ADX_DATABASE', 'value', parameters('adxDatabaseName')), createObject('name', 'ADX_QUERY_TIMEOUT_SECONDS', 'value', string(parameters('adxQueryTimeoutSeconds')))), createArray())]",
+            "fabricEnvVarsWithUri": "[if(and(equals(parameters('analyticsBackend'), 'Fabric'), not(empty(parameters('fabricQueryUri')))), createArray(createObject('name', 'FABRIC_QUERY_URI', 'value', parameters('fabricQueryUri'))), createArray())]",
+            "fabricEnvVarsWithIds": "[if(and(equals(parameters('analyticsBackend'), 'Fabric'), empty(parameters('fabricQueryUri'))), createArray(createObject('name', 'FABRIC_WORKSPACE_ID', 'value', parameters('fabricWorkspaceId')), createObject('name', 'FABRIC_KQL_DATABASE_NAME', 'value', parameters('fabricKqlDatabaseName'))), createArray())]",
+            "foundryEnvVars": "[if(equals(parameters('analyticsBackend'), 'Foundry'), createArray(createObject('name', 'AZURE_PROJECT_ENDPOINT', 'value', parameters('foundryProjectEndpoint')), createObject('name', 'AZURE_AI_INFERENCE_ENDPOINT', 'value', if(not(empty(parameters('foundryInferenceEndpoint'))), parameters('foundryInferenceEndpoint'), parameters('azureOpenaiEndpoint'))), createObject('name', 'AZURE_MODEL_DEPLOYMENT_NAME', 'value', parameters('foundryModelDeploymentName')), createObject('name', 'AZURE_API_VERSION', 'value', parameters('foundryApiVersion')), createObject('name', 'AZURE_OPENAI_DEPLOYMENT', 'value', parameters('azureOpenaiDeployment'))), createArray())]",
+            "openaiEnvVars": "[if(not(empty(parameters('azureOpenaiEndpoint'))), createArray(createObject('name', 'AZURE_OPENAI_ENDPOINT', 'value', parameters('azureOpenaiEndpoint')), createObject('name', 'AZURE_OPENAI_DEPLOYMENT', 'value', parameters('azureOpenaiDeployment'))), createArray())]",
+            "spEnvVars": "[if(equals(parameters('authMode'), 'ServicePrincipal'), createArray(createObject('name', 'AZURE_TENANT_ID', 'value', parameters('spTenantId')), createObject('name', 'AZURE_CLIENT_ID_SP', 'value', parameters('spClientId'))), createArray())]",
+            "agenticEnvVars": "[if(not(empty(parameters('azureSubscriptionId'))), createArray(createObject('name', 'AZURE_SUBSCRIPTION_ID', 'value', parameters('azureSubscriptionId'))), createArray())]",
+            "allEnvVars": "[union(variables('baseEnvVars'), variables('adxEnvVars'), variables('fabricEnvVarsWithUri'), variables('fabricEnvVarsWithIds'), variables('foundryEnvVars'), variables('openaiEnvVars'), variables('spEnvVars'), variables('agenticEnvVars'))]",
+            "spSecretConfigured": "[and(equals(parameters('authMode'), 'ServicePrincipal'), or(not(empty(parameters('spClientSecret'))), not(empty(parameters('spClientSecretUri')))))]",
+            "apiKeyConfigured": "[and(equals(parameters('authMode'), 'ApiKey'), or(not(empty(parameters('apiKey'))), not(empty(parameters('apiKeyUri')))))]",
+            "foundrySecretConfigured": "[and(equals(parameters('analyticsBackend'), 'Foundry'), or(not(empty(parameters('foundryProjectConnectionString'))), not(empty(parameters('foundryConnectionStringUri')))))]",
+            "skuAdvisorSecretConfigured": "[and(not(empty(parameters('skuAdvisorApiUrl'))), not(empty(parameters('skuAdvisorApiKey'))))]",
+            "secretsList": "[union(if(variables('spSecretConfigured'), createArray(if(empty(parameters('spClientSecretUri')), createObject('name', 'sp-client-secret', 'value', parameters('spClientSecret')), createObject('name', 'sp-client-secret', 'keyVaultUrl', parameters('spClientSecretUri'), 'identity', parameters('userAssignedIdentityId')))), createArray()), if(variables('apiKeyConfigured'), createArray(if(empty(parameters('apiKeyUri')), createObject('name', 'api-key', 'value', parameters('apiKey')), createObject('name', 'api-key', 'keyVaultUrl', parameters('apiKeyUri'), 'identity', parameters('userAssignedIdentityId')))), createArray()), if(variables('foundrySecretConfigured'), createArray(if(empty(parameters('foundryConnectionStringUri')), createObject('name', 'foundry-connection-string', 'value', parameters('foundryProjectConnectionString')), createObject('name', 'foundry-connection-string', 'keyVaultUrl', parameters('foundryConnectionStringUri'), 'identity', parameters('userAssignedIdentityId')))), createArray()), if(variables('easyAuthEnabled'), createArray(if(empty(parameters('easyAuthClientSecretUri')), createObject('name', 'microsoft-provider-authentication-secret', 'value', parameters('easyAuthClientSecret')), createObject('name', 'microsoft-provider-authentication-secret', 'keyVaultUrl', parameters('easyAuthClientSecretUri'), 'identity', parameters('userAssignedIdentityId')))), createArray()), if(variables('skuAdvisorSecretConfigured'), createArray(if(empty(parameters('skuAdvisorApiKeyUri')), createObject('name', 'sku-advisor-api-key', 'value', parameters('skuAdvisorApiKey')), createObject('name', 'sku-advisor-api-key', 'keyVaultUrl', parameters('skuAdvisorApiKeyUri'), 'identity', parameters('userAssignedIdentityId')))), createArray()))]",
+            "secretEnvRefs": "[union(if(variables('spSecretConfigured'), createArray(createObject('name', 'SP_CLIENT_SECRET', 'secretRef', 'sp-client-secret')), createArray()), if(variables('apiKeyConfigured'), createArray(createObject('name', 'API_KEY', 'secretRef', 'api-key')), createArray()), if(variables('foundrySecretConfigured'), createArray(createObject('name', 'AZURE_AI_PROJECT_CONNECTION_STRING', 'secretRef', 'foundry-connection-string')), createArray()), if(variables('skuAdvisorSecretConfigured'), createArray(createObject('name', 'SKU_ADVISOR_API_KEY', 'secretRef', 'sku-advisor-api-key')), createArray()))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/containerApps",
+              "apiVersion": "2024-03-01",
+              "name": "[variables('containerAppName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('userAssignedIdentityId'))]": {}
+                }
+              },
+              "properties": {
+                "managedEnvironmentId": "[parameters('containerAppEnvironmentId')]",
+                "configuration": {
+                  "activeRevisionsMode": "Single",
+                  "ingress": {
+                    "external": true,
+                    "targetPort": 3000,
+                    "transport": "auto",
+                    "allowInsecure": false,
+                    "traffic": [
+                      {
+                        "latestRevision": true,
+                        "weight": 100
+                      }
+                    ]
+                  },
+                  "registries": [
+                    {
+                      "server": "[parameters('acrLoginServer')]",
+                      "identity": "[parameters('userAssignedIdentityId')]"
+                    }
+                  ],
+                  "secrets": "[variables('secretsList')]"
+                },
+                "template": {
+                  "containers": [
+                    {
+                      "name": "dashboard",
+                      "image": "[parameters('containerImageUri')]",
+                      "resources": {
+                        "cpu": "[json(parameters('containerCpu'))]",
+                        "memory": "[parameters('containerMemory')]"
+                      },
+                      "env": "[union(variables('allEnvVars'), variables('secretEnvRefs'))]"
+                    }
+                  ],
+                  "scale": {
+                    "minReplicas": "[parameters('minReplicas')]",
+                    "maxReplicas": "[parameters('maxReplicas')]",
+                    "rules": []
+                  }
+                }
+              },
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "condition": "[variables('easyAuthEnabled')]",
+              "type": "Microsoft.App/containerApps/authConfigs",
+              "apiVersion": "2024-03-01",
+              "name": "[format('{0}/{1}', variables('containerAppName'), 'current')]",
+              "properties": {
+                "platform": {
+                  "enabled": true
+                },
+                "globalValidation": {
+                  "unauthenticatedClientAction": "RedirectToLoginPage",
+                  "redirectToProvider": "azureactivedirectory",
+                  "excludedPaths": [
+                    "/api/health"
+                  ]
+                },
+                "identityProviders": {
+                  "azureActiveDirectory": {
+                    "enabled": true,
+                    "registration": {
+                      "openIdIssuer": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, variables('easyAuthIssuerTenantId'))]",
+                      "clientId": "[parameters('easyAuthClientId')]",
+                      "clientSecretSettingName": "microsoft-provider-authentication-secret"
+                    },
+                    "validation": {
+                      "allowedAudiences": "[union(createArray(format('api://{0}', parameters('easyAuthClientId')), parameters('easyAuthClientId')), parameters('easyAuthAllowedAudiences'))]"
+                    }
+                  }
+                },
+                "login": {
+                  "preserveUrlFragmentsForLogins": true
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/containerApps', variables('containerAppName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "containerAppUrl": {
+              "type": "string",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('containerAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+            },
+            "containerAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/containerApps', variables('containerAppName'))]"
+            },
+            "containerAppName": {
+              "type": "string",
+              "value": "[variables('containerAppName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'environment-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'mcp-server-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'sku-advisor-deployment')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "resourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource group name where resources were deployed."
+      },
+      "value": "[resourceGroup().name]"
+    },
+    "resourceGroupLocation": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure region of the deployment."
+      },
+      "value": "[resourceGroup().location]"
+    },
+    "containerAppUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Public URL of the FinOps Dashboard Container App."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'container-app-deployment'), '2025-04-01').outputs.containerAppUrl.value]"
+    },
+    "containerAppName": {
+      "type": "string",
+      "metadata": {
+        "description": "Container App resource name."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'container-app-deployment'), '2025-04-01').outputs.containerAppName.value]"
+    },
+    "containerAppEnvironmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Container App Environment resource name."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.environmentName.value]"
+    },
+    "acrName": {
+      "type": "string",
+      "metadata": {
+        "description": "ACR resource name."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrName.value]"
+    },
+    "acrLoginServer": {
+      "type": "string",
+      "metadata": {
+        "description": "ACR login server (use this to tag and push images)."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics Workspace resource ID."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.logAnalyticsWorkspaceId.value]"
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics Workspace name."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.logAnalyticsWorkspaceName.value]"
+    },
+    "managedIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "User-Assigned Managed Identity resource ID."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityId.value]"
+    },
+    "managedIdentityPrincipalId": {
+      "type": "string",
+      "metadata": {
+        "description": "User-Assigned Managed Identity principal ID (use for RBAC role assignments on backend resources)."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityPrincipalId.value]"
+    },
+    "managedIdentityClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "User-Assigned Managed Identity client ID."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
+    },
+    "mcpServerUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Internal URL of the Azure Pricing MCP server (if deployed). Only reachable from inside the Container Apps Environment."
+      },
+      "value": "[if(parameters('deployMcp'), reference(resourceId('Microsoft.Resources/deployments', 'mcp-server-deployment'), '2025-04-01').outputs.mcpServerUrl.value, 'Not deployed')]"
+    },
+    "skuAdvisorUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Internal URL of the Azure SKU Advisor API (if deployed). Only reachable from inside the Container Apps Environment."
+      },
+      "value": "[if(parameters('deploySkuAdvisor'), reference(resourceId('Microsoft.Resources/deployments', 'sku-advisor-deployment'), '2025-04-01').outputs.skuAdvisorUrl.value, 'Not deployed')]"
+    },
+    "keyVaultName": {
+      "type": "string",
+      "metadata": {
+        "description": "Key Vault holding the application secrets (if deployed)."
+      },
+      "value": "[if(parameters('deployKeyVault'), reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value, 'Not deployed')]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "metadata": {
+        "description": "Key Vault base URI (if deployed). Rotate a secret here to roll it without redeploying."
+      },
+      "value": "[if(parameters('deployKeyVault'), reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultUri.value, 'Not deployed')]"
+    },
+    "analyticsBackendConfigured": {
+      "type": "string",
+      "metadata": {
+        "description": "Analytics backend configured for this deployment."
+      },
+      "value": "[parameters('analyticsBackend')]"
+    },
+    "authModeConfigured": {
+      "type": "string",
+      "metadata": {
+        "description": "Authentication mode configured for this deployment."
+      },
+      "value": "[parameters('authMode')]"
+    }
+  }
+}

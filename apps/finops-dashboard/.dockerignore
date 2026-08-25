@@ -1,0 +1,65 @@
+# Build artifacts
+.next
+node_modules
+dist
+build
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs
+README.md
+LICENSE
+CHANGELOG.md
+
+# Development
+.data
+.cache
+coverage
+.nyc_output
+
+# Project-specific
+ai-finops-accelerator-dashboard
+azure-cost-calculator-free-tool
+mcp-server
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Testing
+jest.config.js
+vitest.config.ts
+cypress.config.ts
+
+# npm / yarn
+.npm
+.yarn
+pnpm-debug.log
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db

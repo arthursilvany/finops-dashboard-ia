@@ -1,0 +1,82 @@
+name: Feature Request
+description: Suggest new functionality or an improvement
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.
+
+        Please search existing issues first — the idea may already be under discussion.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Dashboard application (apps/finops-dashboard)
+        - Infrastructure — Bicep / ARM (infra/)
+        - Authentication / authorization
+        - Data source — ADX / FinOps Hub / Fabric / Foundry
+        - Agentic FinOps / Azure Advisor
+        - Customer POC mode (cost export ingestion)
+        - Azure Pricing MCP server (mcp/azure-pricing-mcp)
+        - AI features (insights, chat, stakeholder cards)
+        - Documentation
+        - CI / tooling
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: >
+        Describe the problem, not the solution. What are you unable to do today, and what does
+        that cost you?
+      placeholder: >
+        I cannot tell which reservations are underutilized without exporting to Excel, so the
+        monthly review takes an hour longer than it should.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about, and why you set them aside.
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: How important is this to you?
+      options:
+        - Nice to have
+        - Would meaningfully improve my workflow
+        - Blocking a real use case
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, links to Azure documentation, FinOps Framework references, examples.
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request implementing this.
+          required: false
