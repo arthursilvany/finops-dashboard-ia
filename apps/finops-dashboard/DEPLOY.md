@@ -12,8 +12,7 @@ FinOps Hub**. The template only creates its own resources and never touches the 
 
 | Resource                  | Name pattern                          | Notes                                   |
 | ------------------------- | ------------------------------------- | --------------------------------------- |
-| Container Registry        | `acr<project><env>`                   | Admin user disabled; pull via UAMI      |
-| User-assigned identity    | `mi-<project>-<env>`                  | Single identity for ACR, ADX and OpenAI |
+| User-assigned identity    | `mi-<project>-<env>`                  | Single identity for ADX and OpenAI      |
 | Log Analytics workspace   | `log-<project>-<env>`                 |                                         |
 | Container Apps env        | `env-<project>-<env>`                 | Shared by both apps                     |
 | Container App (dashboard) | `app-<project>-<env>`                 | External ingress, Easy Auth enabled     |
@@ -28,8 +27,8 @@ optimization. Do not expose it publicly.
 - An existing FinOps Hub with an ADX cluster, and its cluster URI.
 - An existing Azure OpenAI or AI Foundry resource with a chat deployment, **in the same tenant**
   as the Container App — `authMode=ManagedIdentity` cannot issue cross-tenant tokens.
-- `Owner` or `User Access Administrator` on the resource group (needed for `grantAcrPull=true`
-  and for the post-deployment role assignments).
+- Contributor on the resource group; backend role assignments may require
+  additional permissions on those external resources.
 - Azure CLI with the Bicep extension.
 
 ---
@@ -47,33 +46,19 @@ command line in step 6, or keep it in a local `.bicepparam` that git ignores.
 `-AssignAdminToCurrentUser` assigns `FinOps.Admin` to you. With `authDefaultRole=none`, skipping
 it locks everyone out of the deployed app.
 
-## 2. Create the container registry first
+## 2. Confirm the published images
 
-The template points the Container Apps at `acr<project><env>.azurecr.io/finops-dashboard:latest`.
-That tag does not exist before the first deployment, so running the full template first produces
-a revision that fails to pull. Create the registry, push the images, then deploy — the ACR module
-is idempotent and simply reasserts the existing registry.
+The template uses immutable public GHCR images, so no registry bootstrap is
+required:
 
 ```powershell
-$acrName = '<ACR_NAME>'
-az acr create -g <resource-group> -n $acrName --sku Basic -l <location>
+docker manifest inspect ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:1.0.0
+docker manifest inspect ghcr.io/arthursilvany/finops-dashboard-ia-azure-pricing-mcp:1.0.0
 ```
 
-## 3. Build and push both images
+Both commands must succeed anonymously before deployment.
 
-```powershell
-cd apps/finops-dashboard
-az acr build --registry $acrName --image finops-dashboard:latest --file Dockerfile . --no-logs
-
-cd ../../mcp/azure-pricing-mcp
-az acr build --registry $acrName --image azure-pricing-mcp:latest --file Dockerfile . --no-logs
-```
-
-`--no-logs` is deliberate on Windows: the CLI's log streamer crashes with `UnicodeEncodeError`
-on the Next.js `▲` banner, and that crash masks the real build error. See
-[docs/troubleshooting.md](../../docs/operations/troubleshooting.md) for how to read the log afterwards.
-
-## 4. Assemble the parameters
+## 3. Assemble the parameters
 
 ```powershell
 $p = @(
@@ -87,7 +72,6 @@ $p = @(
   'azureOpenaiEndpoint=https://<resource>.openai.azure.com/openai/v1'
   'azureOpenaiDeployment=gpt-4o'
   'deployMcp=true'
-  'grantAcrPull=true'
   'deployKeyVault=true'
   'enableEasyAuth=true'
   'authDefaultRole=none'
@@ -109,7 +93,7 @@ template leaves it off by default. To reuse an existing vault, set `deployKeyVau
 pass `easyAuthClientSecretUri` (and its siblings) instead — see
 [docs/security.md](../../docs/operations/security.md).
 
-## 5. Preview with `what-if`
+## 4. Preview with `what-if`
 
 Mandatory when deploying into the Hub's resource group. A resource-group-scoped template can
 touch existing resources on a name collision.
@@ -119,10 +103,7 @@ az deployment group what-if -g <resource-group> -f infra/bicep/finops-dashboard/
 ```
 
 Every Hub resource must appear as `Ignore`. Abort if anything shows as `Modify` or `Delete`.
-The `AcrPull` role assignment is reported as `Unsupported` — expected, because its `principalId`
-only exists at runtime.
-
-## 6. Deploy
+## 5. Deploy
 
 ```powershell
 az deployment group create -g <resource-group> -n finops-dashboard-staging `
@@ -131,7 +112,7 @@ az deployment group create -g <resource-group> -n finops-dashboard-staging `
 
 Capture `containerAppUrl` and `managedIdentityPrincipalId` from the outputs.
 
-## 7. Grant data-plane permissions
+## 6. Grant data-plane permissions
 
 Azure RBAC on the Kusto cluster does **not** grant the right to read data. Each database needs
 its own principal assignment:
@@ -160,15 +141,13 @@ az role assignment create --assignee-object-id $mi --assignee-principal-type Ser
   --scope "/subscriptions/<sub>/resourceGroups/<openai-rg>/providers/Microsoft.CognitiveServices/accounts/<openai-resource>"
 ```
 
-`AcrPull` is already handled by the template when `grantAcrPull=true`.
-
 Restart the revision so the new permissions take effect:
 
 ```powershell
 az containerapp revision restart -g <resource-group> -n app-finops-dashboard-staging --revision <revision>
 ```
 
-## 8. Finish the Easy Auth loop
+## 7. Finish the Easy Auth loop
 
 The reply URL only exists after deployment:
 
@@ -178,7 +157,7 @@ The reply URL only exists after deployment:
 
 Then assign `FinOps.Reader` / `FinOps.Admin` to the users or groups that need access.
 
-## 9. Validate
+## 8. Validate
 
 ```powershell
 $base = '<containerAppUrl>'

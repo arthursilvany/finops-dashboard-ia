@@ -83,25 +83,17 @@ az containerapp update \
 ## Updating the Container Image
 
 ```bash
-# Build new image
-cd apps/finops-dashboard
-docker build -t finops-dashboard:<NEW_TAG> .
+# Use a version already published by the Release workflow.
+IMAGE="ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:<NEW_VERSION>"
 
-# Get ACR server from deployment output or portal
-ACR_SERVER="<ACR_NAME>.azurecr.io"
-az acr login --name <ACR_NAME>
-
-docker tag finops-dashboard:<NEW_TAG> "$ACR_SERVER/finops-dashboard:<NEW_TAG>"
-docker push "$ACR_SERVER/finops-dashboard:<NEW_TAG>"
-
-# Update the Container App (creates a new revision)
 az containerapp update \
   --name ca-<PROJECT_NAME>-<ENV> \
   --resource-group <RESOURCE_GROUP> \
-  --image "$ACR_SERVER/finops-dashboard:<NEW_TAG>"
+  --image "$IMAGE"
 ```
 
-A new revision is created automatically. Traffic shifts to the new revision once it passes health checks.
+Never repoint production to `latest`. A new revision is created automatically,
+and traffic shifts once it passes health checks.
 
 ---
 
@@ -144,7 +136,7 @@ az containerapp revision restart \
 
 ## Updating Infrastructure (Bicep)
 
-For infrastructure changes (scaling limits, ACR SKU, log retention, adding tags):
+For infrastructure changes (scaling limits, image versions, log retention, adding tags):
 
 ```bash
 # Edit infra/bicep/finops-dashboard/main.bicep or modules
@@ -166,15 +158,14 @@ Bicep deployments are **idempotent** — re-running does not recreate unchanged 
 
 ## Cost Management
 
-Estimated monthly cost for a minimal deployment (Basic ACR, 0.5 vCPU/1 GiB, 1 replica, 30-day log retention):
+Estimated monthly cost for a minimal deployment (0.5 vCPU/1 GiB, 1 replica, 30-day log retention):
 
 | Resource                     | Estimated Cost                        |
 | ---------------------------- | ------------------------------------- |
 | Container Apps (Consumption) | ~$5–$15/month (depends on usage)      |
-| Container Registry (Basic)   | ~$5/month                             |
 | Log Analytics Workspace      | ~$2–$10/month (depends on log volume) |
 | Managed Identity             | Free                                  |
-| **Total**                    | **~$12–$30/month**                    |
+| **Total**                    | **~$7–$25/month**                     |
 
 Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for accurate estimates based on your expected traffic.
 

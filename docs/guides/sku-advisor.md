@@ -115,18 +115,17 @@ SKU_ADVISOR_API_URL=http://localhost:8081
 
 ## Deployment
 
-The advisor runs as an **internal-only Container App**, the same pattern as the
-pricing MCP server: only the dashboard, from inside the Container Apps
-Environment, can reach it. Deploy it by setting `deploySkuAdvisor` to `true` and
-pushing the advisor image to the deployment's ACR as `azure-sku-advisor:latest`.
+The advisor source and Docker build live in the separate Azure SKU Advisor
+project, so this repository does not provision that service or advertise an
+image it cannot build. Deploy the advisor independently with private ingress,
+then pass its reachable base URL as `skuAdvisorApiUrl`.
 
-`main.bicep` then wires the internal URL into the dashboard as
-`SKU_ADVISOR_API_URL`. The shared key goes to Key Vault as `sku-advisor-api-key`
-and reaches both apps as a versionless Key Vault reference, so rotating it is a
-vault operation rather than a redeployment. Setting `skuAdvisorAllowLiveReads`
-also turns on the dashboard's `SKU_ADVISOR_LIVE_USAGE`, so the opt-in that
-permits live reads is the same one that makes the view analyze the real estate.
-Pair it with `skuAdvisorRegions`, or the analysis silently covers nothing.
+The dashboard sends `skuAdvisorApiKey` as `x-api-key`; when the template creates
+Key Vault, the key is stored as `sku-advisor-api-key` and consumed through a
+versionless reference. Set `skuAdvisorLiveUsage=true` only when the external
+advisor separately permits live reads. Pair it with `skuAdvisorRegions`, or the
+analysis may silently cover no workloads outside the advisor's pricing region
+list.
 
 ## Collecting 90 days of CPU, memory and IOPS
 
@@ -201,10 +200,11 @@ by default:
 - **Live Azure reads.** `live_usage`, `live_quota`, `live_capacity`,
   `live_advisor` and friends drive the advisor's Managed Identity into Resource
   Graph, Log Analytics, quota and Advisor. Gated by `SKU_ADVISOR_ALLOW_LIVE`
-  (Bicep: `skuAdvisorAllowLiveReads`).
+  in the independently deployed advisor. The dashboard's
+  `skuAdvisorLiveUsage` parameter only requests that mode.
 - **The AI narrative.** A billable Azure OpenAI call that egresses the
   customer's estate facts. Gated by `SKU_ADVISOR_ALLOW_AI`
-  (Bicep: `skuAdvisorAllowAiNarrative`).
+  in the independently deployed advisor.
 
 Independently of those server-side gates, the dashboard's BFF forwards a fixed
 allowlist of query parameters — `region`, `currency`, `threshold`,

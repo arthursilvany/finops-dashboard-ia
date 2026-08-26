@@ -42,7 +42,7 @@
             "type": "Microsoft.Common.InfoBox",
             "visible": true,
             "options": {
-              "text": "Configure the compute resources for the FinOps Dashboard container. The 0.5 vCPU / 1 GiB default handles up to ~50 concurrent users.",
+              "text": "Configure compute resources for the FinOps Dashboard. The deployment pulls versioned public dashboard and pricing MCP images from GitHub Container Registry; it does not create an empty registry that requires a separate image push.",
               "style": "Info"
             }
           },
@@ -104,49 +104,6 @@
                 "showStepMarkers": false
               }
             ]
-          },
-          {
-            "name": "acrSku",
-            "type": "Microsoft.Common.DropDown",
-            "label": "Container Registry SKU",
-            "defaultValue": "Basic",
-            "toolTip": "Azure Container Registry tier. Basic is sufficient for most deployments.",
-            "constraints": {
-              "required": true,
-              "allowedValues": [
-                {
-                  "label": "Basic (recommended for most deployments)",
-                  "value": "Basic"
-                },
-                {
-                  "label": "Standard (adds webhooks, more storage)",
-                  "value": "Standard"
-                },
-                {
-                  "label": "Premium (geo-replication, private link)",
-                  "value": "Premium"
-                }
-              ]
-            }
-          },
-          {
-            "name": "grantAcrPull",
-            "type": "Microsoft.Common.CheckBox",
-            "label": "Grant AcrPull to the Container App identity",
-            "defaultValue": true,
-            "toolTip": "Creates the AcrPull role assignment automatically. Requires Owner or User Access Administrator on the resource group. Uncheck if you only have Contributor, then grant AcrPull manually after the deployment."
-          },
-          {
-            "name": "dashboardImageName",
-            "type": "Microsoft.Common.TextBox",
-            "label": "Container Image Name",
-            "defaultValue": "finops-dashboard:latest",
-            "toolTip": "Image name and tag to pull from ACR (without registry prefix). Build and push the image to ACR before deploying.",
-            "constraints": {
-              "required": true,
-              "regex": "^[a-z0-9][a-z0-9._/-]*:[a-zA-Z0-9._-]+$",
-              "validationMessage": "Must be a valid image name:tag format."
-            }
           }
         ]
       },
@@ -522,7 +479,6 @@
             "resources": [
               "Microsoft.App/containerApps",
               "Microsoft.App/managedEnvironments",
-              "Microsoft.ContainerRegistry/registries",
               "Microsoft.ManagedIdentity/userAssignedIdentities",
               "Microsoft.OperationalInsights/workspaces"
             ]
@@ -557,9 +513,6 @@
       "containerMemory": "[steps('containerStep').containerMemory]",
       "minReplicas": "[steps('containerStep').scalingSection.minReplicas]",
       "maxReplicas": "[steps('containerStep').scalingSection.maxReplicas]",
-      "acrSku": "[steps('containerStep').acrSku]",
-      "grantAcrPull": "[steps('containerStep').grantAcrPull]",
-      "dashboardImageName": "[steps('containerStep').dashboardImageName]",
       "deployMcp": "[steps('loggingStep').mcpSection.deployMcp]",
       "logRetentionDays": "[steps('loggingStep').logRetentionDays]"
     }

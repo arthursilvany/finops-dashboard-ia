@@ -71,8 +71,8 @@ Out of scope:
 
 The deployment is built around a few deliberate choices:
 
-- **No admin credentials on the container registry.** Image pulls use a User-Assigned Managed
-  Identity holding `AcrPull`.
+- **No registry credentials for public defaults.** Versioned GHCR images are pulled
+  anonymously; private custom registries use the User-Assigned Managed Identity.
 - **Secrets live in Azure Key Vault** and reach the Container App through Key Vault references,
   or are avoided entirely by using Managed Identity.
 - **Entra ID sign-in is required** to reach the dashboard. Authorization is enforced in two

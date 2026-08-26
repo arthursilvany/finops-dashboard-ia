@@ -10,9 +10,9 @@ param environment string
 param userAssignedIdentityId string
 param userAssignedIdentityClientId string
 
-// Container image & registry
+// Container image and optional private registry
 param containerImageUri string
-param acrLoginServer string
+param privateAcrServer string = ''
 
 @description('Resource ID of the shared Container Apps Environment (see modules/environment.bicep).')
 param containerAppEnvironmentId string
@@ -313,9 +313,9 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           }
         ]
       }
-      registries: [
+      registries: empty(privateAcrServer) ? [] : [
         {
-          server: acrLoginServer
+          server: privateAcrServer
           identity: userAssignedIdentityId
         }
       ]

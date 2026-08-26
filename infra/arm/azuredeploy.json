@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "410390983569517192"
+      "templateHash": "1651719392285202940"
     }
   },
   "parameters": {
@@ -38,18 +38,18 @@
         "description": "Deployment environment tag (e.g., dev, staging, prod)."
       }
     },
-    "dashboardImageName": {
+    "dashboardImageUri": {
       "type": "string",
-      "defaultValue": "finops-dashboard:latest",
+      "defaultValue": "ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:1.0.0",
       "metadata": {
-        "description": "Dashboard container image name and tag stored in ACR (e.g., finops-dashboard:latest)."
+        "description": "Full dashboard image URI. The default is a versioned public GHCR image published by this repository."
       }
     },
-    "mcpImageName": {
+    "mcpImageUri": {
       "type": "string",
-      "defaultValue": "azure-pricing-mcp:latest",
+      "defaultValue": "ghcr.io/arthursilvany/finops-dashboard-ia-azure-pricing-mcp:1.0.0",
       "metadata": {
-        "description": "MCP pricing server image name and tag stored in ACR (e.g., azure-pricing-mcp:latest)."
+        "description": "Full Azure Pricing MCP image URI. The default is a versioned public GHCR image published by this repository."
       }
     },
     "deployMcp": {
@@ -59,39 +59,32 @@
         "description": "Whether to deploy the optional pricing MCP server as an internal Container App."
       }
     },
-    "skuAdvisorImageName": {
+    "privateAcrServer": {
       "type": "string",
-      "defaultValue": "azure-sku-advisor:latest",
+      "defaultValue": "",
       "metadata": {
-        "description": "Azure SKU Advisor API image name and tag stored in ACR (e.g., azure-sku-advisor:latest)."
+        "description": "Private Azure Container Registry server, for example contoso.azurecr.io. Managed-identity pulls are ACR-only. Leave empty for public GHCR defaults. First deploy the defaults, grant AcrPull, then redeploy with private image URIs."
       }
     },
-    "deploySkuAdvisor": {
-      "type": "bool",
-      "defaultValue": false,
+    "skuAdvisorApiUrl": {
+      "type": "string",
+      "defaultValue": "",
       "metadata": {
-        "description": "Whether to deploy the optional Azure SKU Advisor API as an internal Container App. It backs the /sku-advisor view; without it that view falls back to a workspace export or sample data."
+        "description": "Base URL of an externally deployed Azure SKU Advisor API. Empty uses workspace-export or sample fallback."
       }
     },
     "skuAdvisorApiKey": {
       "type": "securestring",
       "defaultValue": "",
       "metadata": {
-        "description": "Shared key the dashboard sends to the SKU Advisor API as x-api-key. Leave empty to run key-less behind internal ingress."
+        "description": "Shared key the dashboard sends to an externally deployed SKU Advisor API as x-api-key."
       }
     },
-    "skuAdvisorAllowLiveReads": {
+    "skuAdvisorLiveUsage": {
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Allow the SKU Advisor to read the Azure estate live with its Managed Identity (Resource Graph, quota, Advisor, Log Analytics). Off by default."
-      }
-    },
-    "skuAdvisorAllowAiNarrative": {
-      "type": "bool",
-      "defaultValue": false,
-      "metadata": {
-        "description": "Allow the SKU Advisor grounded AI narrative. Billable Azure OpenAI calls plus an egress of estate facts. Off by default."
+        "description": "Ask the external SKU Advisor to analyze live inventory instead of its bundled sample. The external service must separately permit live reads."
       }
     },
     "skuAdvisorRegions": {
@@ -105,7 +98,7 @@
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Ask the SKU Advisor to source rightsizing telemetry (90-day P99 CPU/memory/IOPS busy-signal) live from Azure Monitor platform metrics. Requires skuAdvisorAllowLiveReads and Reader/Monitoring Reader for the Managed Identity on the estate subscription. Off by default."
+        "description": "Ask the external SKU Advisor to source rightsizing telemetry (90-day P99 CPU/memory/IOPS busy-signal) live from Azure Monitor platform metrics. Requires skuAdvisorLiveUsage and appropriate permissions on the advisor service identity. Off by default."
       }
     },
     "containerCpu": {
@@ -150,25 +143,6 @@
       "maxValue": 30,
       "metadata": {
         "description": "Maximum number of container replicas."
-      }
-    },
-    "acrSku": {
-      "type": "string",
-      "defaultValue": "Basic",
-      "allowedValues": [
-        "Basic",
-        "Standard",
-        "Premium"
-      ],
-      "metadata": {
-        "description": "Azure Container Registry SKU."
-      }
-    },
-    "grantAcrPull": {
-      "type": "bool",
-      "defaultValue": true,
-      "metadata": {
-        "description": "Create the AcrPull role assignment for the Container App identity. Requires Owner or User Access Administrator on the resource group. Set to false when deploying with Contributor only, and grant AcrPull manually afterwards."
       }
     },
     "logRetentionDays": {
@@ -495,132 +469,6 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "acr-deployment",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "location": {
-            "value": "[parameters('location')]"
-          },
-          "projectName": {
-            "value": "[parameters('projectName')]"
-          },
-          "environment": {
-            "value": "[parameters('environment')]"
-          },
-          "acrSku": {
-            "value": "[parameters('acrSku')]"
-          },
-          "pullPrincipalId": "[if(parameters('grantAcrPull'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityPrincipalId.value), createObject('value', ''))]",
-          "tags": {
-            "value": "[variables('commonTags')]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "7004267467105961955"
-            }
-          },
-          "parameters": {
-            "location": {
-              "type": "string"
-            },
-            "projectName": {
-              "type": "string"
-            },
-            "environment": {
-              "type": "string"
-            },
-            "acrSku": {
-              "type": "string",
-              "defaultValue": "Basic",
-              "allowedValues": [
-                "Basic",
-                "Standard",
-                "Premium"
-              ],
-              "metadata": {
-                "description": "ACR pricing tier."
-              }
-            },
-            "pullPrincipalId": {
-              "type": "string",
-              "defaultValue": "",
-              "metadata": {
-                "description": "Principal ID of the User-Assigned Managed Identity that pulls images. When set, an AcrPull role assignment is created on this registry."
-              }
-            },
-            "tags": {
-              "type": "object",
-              "defaultValue": {}
-            }
-          },
-          "variables": {
-            "acrName": "[format('acr{0}{1}', replace(parameters('projectName'), '-', ''), parameters('environment'))]",
-            "acrPullRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.ContainerRegistry/registries",
-              "apiVersion": "2023-07-01",
-              "name": "[variables('acrName')]",
-              "location": "[parameters('location')]",
-              "sku": {
-                "name": "[parameters('acrSku')]"
-              },
-              "properties": {
-                "adminUserEnabled": false,
-                "policies": "[if(equals(parameters('acrSku'), 'Premium'), createObject('retentionPolicy', createObject('status', 'enabled', 'days', 7)), createObject())]"
-              },
-              "tags": "[parameters('tags')]"
-            },
-            {
-              "condition": "[not(empty(parameters('pullPrincipalId')))]",
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
-              "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), parameters('pullPrincipalId'), variables('acrPullRoleDefinitionId'))]",
-              "properties": {
-                "roleDefinitionId": "[variables('acrPullRoleDefinitionId')]",
-                "principalId": "[parameters('pullPrincipalId')]",
-                "principalType": "ServicePrincipal"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
-              ]
-            }
-          ],
-          "outputs": {
-            "acrLoginServer": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-07-01').loginServer]"
-            },
-            "acrId": {
-              "type": "string",
-              "value": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
-            },
-            "acrName": {
-              "type": "string",
-              "value": "[variables('acrName')]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
       "name": "environment-deployment",
       "properties": {
         "expressionEvaluationOptions": {
@@ -772,10 +620,10 @@
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
           },
           "containerImageUri": {
-            "value": "[format('{0}/{1}', reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value, parameters('mcpImageName'))]"
+            "value": "[parameters('mcpImageUri')]"
           },
-          "acrLoginServer": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
+          "privateAcrServer": {
+            "value": "[parameters('privateAcrServer')]"
           },
           "tags": {
             "value": "[variables('commonTags')]"
@@ -788,7 +636,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "17239955302319107262"
+              "templateHash": "16554573528555755510"
             }
           },
           "parameters": {
@@ -810,7 +658,7 @@
             "userAssignedIdentityId": {
               "type": "string",
               "metadata": {
-                "description": "User-Assigned Managed Identity used to pull from ACR and to call Azure management APIs (Spot pricing tools)."
+                "description": "User-Assigned Managed Identity used for private registry pulls and Azure management APIs (Spot pricing tools)."
               }
             },
             "userAssignedIdentityClientId": {
@@ -819,8 +667,9 @@
             "containerImageUri": {
               "type": "string"
             },
-            "acrLoginServer": {
-              "type": "string"
+            "privateAcrServer": {
+              "type": "string",
+              "defaultValue": ""
             },
             "containerCpu": {
               "type": "string",
@@ -877,12 +726,7 @@
                       }
                     ]
                   },
-                  "registries": [
-                    {
-                      "server": "[parameters('acrLoginServer')]",
-                      "identity": "[parameters('userAssignedIdentityId')]"
-                    }
-                  ]
+                  "registries": "[if(empty(parameters('privateAcrServer')), createArray(), createArray(createObject('server', parameters('privateAcrServer'), 'identity', parameters('userAssignedIdentityId'))))]"
                 },
                 "template": {
                   "containers": [
@@ -939,259 +783,6 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'environment-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
-      ]
-    },
-    {
-      "condition": "[parameters('deploySkuAdvisor')]",
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "sku-advisor-deployment",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "location": {
-            "value": "[parameters('location')]"
-          },
-          "projectName": {
-            "value": "[parameters('projectName')]"
-          },
-          "environment": {
-            "value": "[parameters('environment')]"
-          },
-          "containerAppEnvironmentId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.environmentId.value]"
-          },
-          "userAssignedIdentityId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityId.value]"
-          },
-          "userAssignedIdentityClientId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
-          },
-          "containerImageUri": {
-            "value": "[format('{0}/{1}', reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value, parameters('skuAdvisorImageName'))]"
-          },
-          "acrLoginServer": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
-          },
-          "apiKey": {
-            "value": "[parameters('skuAdvisorApiKey')]"
-          },
-          "allowLiveReads": {
-            "value": "[parameters('skuAdvisorAllowLiveReads')]"
-          },
-          "allowAiNarrative": {
-            "value": "[parameters('skuAdvisorAllowAiNarrative')]"
-          },
-          "tags": {
-            "value": "[variables('commonTags')]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "2400718137203124661"
-            }
-          },
-          "parameters": {
-            "location": {
-              "type": "string"
-            },
-            "projectName": {
-              "type": "string"
-            },
-            "environment": {
-              "type": "string"
-            },
-            "containerAppEnvironmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Resource ID of the shared Container Apps Environment."
-              }
-            },
-            "userAssignedIdentityId": {
-              "type": "string",
-              "metadata": {
-                "description": "User-Assigned Managed Identity used to pull from ACR and, when live reads are enabled, to read the Azure estate."
-              }
-            },
-            "userAssignedIdentityClientId": {
-              "type": "string"
-            },
-            "containerImageUri": {
-              "type": "string"
-            },
-            "acrLoginServer": {
-              "type": "string"
-            },
-            "containerCpu": {
-              "type": "string",
-              "defaultValue": "0.5"
-            },
-            "containerMemory": {
-              "type": "string",
-              "defaultValue": "1Gi"
-            },
-            "apiKey": {
-              "type": "securestring",
-              "defaultValue": "",
-              "metadata": {
-                "description": "Shared key the dashboard sends as x-api-key. Empty leaves the service key-less, which is only acceptable behind internal ingress."
-              }
-            },
-            "allowLiveReads": {
-              "type": "bool",
-              "defaultValue": false,
-              "metadata": {
-                "description": "Allow Managed-Identity-backed live reads of the Azure estate (Resource Graph, quota, Advisor, Log Analytics)."
-              }
-            },
-            "allowAiNarrative": {
-              "type": "bool",
-              "defaultValue": false,
-              "metadata": {
-                "description": "Allow the grounded AI narrative. Billable Azure OpenAI calls plus an egress of estate facts."
-              }
-            },
-            "telemetrySource": {
-              "type": "string",
-              "defaultValue": "metrics",
-              "allowedValues": [
-                "metrics",
-                "loganalytics"
-              ],
-              "metadata": {
-                "description": "Source for live utilization telemetry when live_telemetry is requested. \"metrics\" reads host-emitted Azure Monitor platform metrics (Percentage CPU, Available Memory Bytes; no guest agent needed) over a 90-day P99 window. \"loganalytics\" reads guest Perf counters from a Log Analytics workspace instead (needs SKU_ADVISOR_LA_WORKSPACE_ID)."
-              }
-            },
-            "cacheTtlSeconds": {
-              "type": "int",
-              "defaultValue": 900,
-              "metadata": {
-                "description": "Recommendation cache TTL in seconds. The advisor calls the public Retail Prices API on a miss."
-              }
-            },
-            "minReplicas": {
-              "type": "int",
-              "defaultValue": 1,
-              "metadata": {
-                "description": "A cold start would add the full pricing pipeline to the first page load, so the service does not scale to zero."
-              }
-            },
-            "maxReplicas": {
-              "type": "int",
-              "defaultValue": 2
-            },
-            "tags": {
-              "type": "object",
-              "defaultValue": {}
-            }
-          },
-          "variables": {
-            "containerAppNameCandidate": "[format('app-{0}-skuadv-{1}', parameters('projectName'), parameters('environment'))]",
-            "containerAppNameTruncated": "[take(variables('containerAppNameCandidate'), 32)]",
-            "containerAppName": "[if(endsWith(variables('containerAppNameTruncated'), '-'), take(variables('containerAppNameTruncated'), 31), variables('containerAppNameTruncated'))]",
-            "hasApiKey": "[not(empty(parameters('apiKey')))]"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.App/containerApps",
-              "apiVersion": "2024-03-01",
-              "name": "[variables('containerAppName')]",
-              "location": "[parameters('location')]",
-              "identity": {
-                "type": "UserAssigned",
-                "userAssignedIdentities": {
-                  "[format('{0}', parameters('userAssignedIdentityId'))]": {}
-                }
-              },
-              "properties": {
-                "managedEnvironmentId": "[parameters('containerAppEnvironmentId')]",
-                "configuration": {
-                  "activeRevisionsMode": "Single",
-                  "ingress": {
-                    "external": false,
-                    "targetPort": 8080,
-                    "transport": "auto",
-                    "allowInsecure": false,
-                    "traffic": [
-                      {
-                        "latestRevision": true,
-                        "weight": 100
-                      }
-                    ]
-                  },
-                  "registries": [
-                    {
-                      "server": "[parameters('acrLoginServer')]",
-                      "identity": "[parameters('userAssignedIdentityId')]"
-                    }
-                  ],
-                  "secrets": "[if(variables('hasApiKey'), createArray(createObject('name', 'sku-advisor-api-key', 'value', parameters('apiKey'))), createArray())]"
-                },
-                "template": {
-                  "containers": [
-                    {
-                      "name": "azure-sku-advisor",
-                      "image": "[parameters('containerImageUri')]",
-                      "resources": {
-                        "cpu": "[json(parameters('containerCpu'))]",
-                        "memory": "[parameters('containerMemory')]"
-                      },
-                      "env": "[concat(createArray(createObject('name', 'SKU_ADVISOR_ALLOW_LIVE', 'value', string(parameters('allowLiveReads'))), createObject('name', 'SKU_ADVISOR_ALLOW_AI', 'value', string(parameters('allowAiNarrative'))), createObject('name', 'SKU_ADVISOR_TELEMETRY_SOURCE', 'value', parameters('telemetrySource')), createObject('name', 'SKU_ADVISOR_CACHE_TTL', 'value', string(parameters('cacheTtlSeconds'))), createObject('name', 'SKU_ADVISOR_CORS_ORIGINS', 'value', ''), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('userAssignedIdentityClientId'))), if(variables('hasApiKey'), createArray(createObject('name', 'SKU_ADVISOR_API_KEY', 'secretRef', 'sku-advisor-api-key')), createArray()))]",
-                      "probes": [
-                        {
-                          "type": "Liveness",
-                          "httpGet": {
-                            "path": "/health",
-                            "port": 8080
-                          },
-                          "initialDelaySeconds": 10,
-                          "periodSeconds": 30
-                        }
-                      ]
-                    }
-                  ],
-                  "scale": {
-                    "minReplicas": "[parameters('minReplicas')]",
-                    "maxReplicas": "[parameters('maxReplicas')]",
-                    "rules": []
-                  }
-                }
-              },
-              "tags": "[parameters('tags')]"
-            }
-          ],
-          "outputs": {
-            "skuAdvisorUrl": {
-              "type": "string",
-              "metadata": {
-                "description": "Internal URL of the SKU Advisor API. Only resolvable from inside the Container Apps Environment."
-              },
-              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('containerAppName')), '2024-03-01').configuration.ingress.fqdn)]"
-            },
-            "containerAppName": {
-              "type": "string",
-              "value": "[variables('containerAppName')]"
-            },
-            "containerAppId": {
-              "type": "string",
-              "value": "[resourceId('Microsoft.App/containerApps', variables('containerAppName'))]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'environment-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]"
       ]
@@ -1580,10 +1171,10 @@
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identities-deployment'), '2025-04-01').outputs.userAssignedIdentityClientId.value]"
           },
           "containerImageUri": {
-            "value": "[format('{0}/{1}', reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value, parameters('dashboardImageName'))]"
+            "value": "[parameters('dashboardImageUri')]"
           },
-          "acrLoginServer": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
+          "privateAcrServer": {
+            "value": "[parameters('privateAcrServer')]"
           },
           "containerCpu": {
             "value": "[parameters('containerCpu')]"
@@ -1649,19 +1240,21 @@
             "value": "[parameters('azureOpenaiDeployment')]"
           },
           "mcpServerUrl": "[if(parameters('deployMcp'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'mcp-server-deployment'), '2025-04-01').outputs.mcpServerUrl.value), createObject('value', 'http://localhost:8080'))]",
-          "skuAdvisorApiUrl": "[if(parameters('deploySkuAdvisor'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'sku-advisor-deployment'), '2025-04-01').outputs.skuAdvisorUrl.value), createObject('value', ''))]",
+          "skuAdvisorApiUrl": {
+            "value": "[parameters('skuAdvisorApiUrl')]"
+          },
           "skuAdvisorApiKey": {
             "value": "[parameters('skuAdvisorApiKey')]"
           },
           "skuAdvisorApiKeyUri": "[if(parameters('deployKeyVault'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.skuAdvisorApiKeyUri.value), createObject('value', ''))]",
           "skuAdvisorLiveUsage": {
-            "value": "[and(parameters('deploySkuAdvisor'), parameters('skuAdvisorAllowLiveReads'))]"
+            "value": "[parameters('skuAdvisorLiveUsage')]"
           },
           "skuAdvisorRegions": {
             "value": "[parameters('skuAdvisorRegions')]"
           },
           "skuAdvisorLiveTelemetry": {
-            "value": "[and(and(parameters('deploySkuAdvisor'), parameters('skuAdvisorAllowLiveReads')), parameters('skuAdvisorLiveTelemetry'))]"
+            "value": "[and(parameters('skuAdvisorLiveUsage'), parameters('skuAdvisorLiveTelemetry'))]"
           },
           "spTenantId": {
             "value": "[parameters('spTenantId')]"
@@ -1705,7 +1298,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "9544158036781370937"
+              "templateHash": "14419760477811300573"
             }
           },
           "parameters": {
@@ -1727,8 +1320,9 @@
             "containerImageUri": {
               "type": "string"
             },
-            "acrLoginServer": {
-              "type": "string"
+            "privateAcrServer": {
+              "type": "string",
+              "defaultValue": ""
             },
             "containerAppEnvironmentId": {
               "type": "string",
@@ -2069,12 +1663,7 @@
                       }
                     ]
                   },
-                  "registries": [
-                    {
-                      "server": "[parameters('acrLoginServer')]",
-                      "identity": "[parameters('userAssignedIdentityId')]"
-                    }
-                  ],
+                  "registries": "[if(empty(parameters('privateAcrServer')), createArray(), createArray(createObject('server', parameters('privateAcrServer'), 'identity', parameters('userAssignedIdentityId'))))]",
                   "secrets": "[variables('secretsList')]"
                 },
                 "template": {
@@ -2153,12 +1742,10 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'environment-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'identities-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'mcp-server-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'sku-advisor-deployment')]"
+        "[resourceId('Microsoft.Resources/deployments', 'mcp-server-deployment')]"
       ]
     }
   ],
@@ -2197,20 +1784,6 @@
         "description": "Container App Environment resource name."
       },
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'environment-deployment'), '2025-04-01').outputs.environmentName.value]"
-    },
-    "acrName": {
-      "type": "string",
-      "metadata": {
-        "description": "ACR resource name."
-      },
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrName.value]"
-    },
-    "acrLoginServer": {
-      "type": "string",
-      "metadata": {
-        "description": "ACR login server (use this to tag and push images)."
-      },
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.acrLoginServer.value]"
     },
     "logAnalyticsWorkspaceId": {
       "type": "string",
@@ -2257,9 +1830,9 @@
     "skuAdvisorUrl": {
       "type": "string",
       "metadata": {
-        "description": "Internal URL of the Azure SKU Advisor API (if deployed). Only reachable from inside the Container Apps Environment."
+        "description": "Configured external Azure SKU Advisor API URL."
       },
-      "value": "[if(parameters('deploySkuAdvisor'), reference(resourceId('Microsoft.Resources/deployments', 'sku-advisor-deployment'), '2025-04-01').outputs.skuAdvisorUrl.value, 'Not deployed')]"
+      "value": "[if(empty(parameters('skuAdvisorApiUrl')), 'Not configured', parameters('skuAdvisorApiUrl'))]"
     },
     "keyVaultName": {
       "type": "string",
