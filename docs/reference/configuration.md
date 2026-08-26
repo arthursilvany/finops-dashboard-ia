@@ -318,7 +318,7 @@ bundled sample — it never fails. See [SKU Advisor](../guides/sku-advisor.md).
 
 | Variable              | Required | Description                                                                                   |
 | --------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `SKU_ADVISOR_API_URL` | No       | Base URL of the Azure SKU Advisor FastAPI service. Set by Bicep when `deploySkuAdvisor` is true |
+| `SKU_ADVISOR_API_URL` | No       | Base URL of an independently deployed Azure SKU Advisor FastAPI service. Set from `skuAdvisorApiUrl` |
 | `SKU_ADVISOR_API_KEY` | No       | Sent as `x-api-key`. Required when the advisor service sets its own `SKU_ADVISOR_API_KEY`       |
 | `SKU_ADVISOR_LIVE_USAGE` | No    | Ask the advisor to analyze the real VM inventory instead of its bundled sample. Server-side only |
 
@@ -331,8 +331,8 @@ dashboard retries without the flag and degrades to `offline` rather than failing
 
 The advisor service itself keeps `SKU_ADVISOR_ALLOW_LIVE` (Managed-Identity reads
 of the Azure estate) and `SKU_ADVISOR_ALLOW_AI` (billable Azure OpenAI calls)
-off by default. Enable them deliberately through `skuAdvisorAllowLiveReads` and
-`skuAdvisorAllowAiNarrative` in the Bicep parameters.
+off by default. Enable those controls in the independently deployed advisor;
+`skuAdvisorLiveUsage` only controls what the dashboard requests.
 
 ---
 

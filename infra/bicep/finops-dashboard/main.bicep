@@ -1,6 +1,6 @@
 // main.bicep - FinOps Dashboard Infrastructure Orchestrator
-// Deploys: Azure Container Registry, Container Apps Environment, Container App,
-//          Log Analytics Workspace, User-Assigned Managed Identity
+// Deploys: Container Apps Environment, Container App, Log Analytics Workspace,
+//          User-Assigned Managed Identity
 //
 // Supports analytics backends: None | ADX | Fabric | Foundry
 // Supports auth modes:         ManagedIdentity | ServicePrincipal | ApiKey
@@ -27,35 +27,32 @@ param environment string = 'prod'
 // Container Image Parameters
 // ============================================================================
 
-@description('Dashboard container image name and tag stored in ACR (e.g., finops-dashboard:latest).')
-param dashboardImageName string = 'finops-dashboard:latest'
+@description('Full dashboard image URI. The default is a versioned public GHCR image published by this repository.')
+param dashboardImageUri string = 'ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:1.0.0'
 
-@description('MCP pricing server image name and tag stored in ACR (e.g., azure-pricing-mcp:latest).')
-param mcpImageName string = 'azure-pricing-mcp:latest'
+@description('Full Azure Pricing MCP image URI. The default is a versioned public GHCR image published by this repository.')
+param mcpImageUri string = 'ghcr.io/arthursilvany/finops-dashboard-ia-azure-pricing-mcp:1.0.0'
 
 @description('Whether to deploy the optional pricing MCP server as an internal Container App.')
 param deployMcp bool = false
 
-@description('Azure SKU Advisor API image name and tag stored in ACR (e.g., azure-sku-advisor:latest).')
-param skuAdvisorImageName string = 'azure-sku-advisor:latest'
+@description('Private Azure Container Registry server, for example contoso.azurecr.io. Managed-identity pulls are ACR-only. Leave empty for public GHCR defaults. First deploy the defaults, grant AcrPull, then redeploy with private image URIs.')
+param privateAcrServer string = ''
 
-@description('Whether to deploy the optional Azure SKU Advisor API as an internal Container App. It backs the /sku-advisor view; without it that view falls back to a workspace export or sample data.')
-param deploySkuAdvisor bool = false
+@description('Base URL of an externally deployed Azure SKU Advisor API. Empty uses workspace-export or sample fallback.')
+param skuAdvisorApiUrl string = ''
 
-@description('Shared key the dashboard sends to the SKU Advisor API as x-api-key. Leave empty to run key-less behind internal ingress.')
+@description('Shared key the dashboard sends to an externally deployed SKU Advisor API as x-api-key.')
 @secure()
 param skuAdvisorApiKey string = ''
 
-@description('Allow the SKU Advisor to read the Azure estate live with its Managed Identity (Resource Graph, quota, Advisor, Log Analytics). Off by default.')
-param skuAdvisorAllowLiveReads bool = false
-
-@description('Allow the SKU Advisor grounded AI narrative. Billable Azure OpenAI calls plus an egress of estate facts. Off by default.')
-param skuAdvisorAllowAiNarrative bool = false
+@description('Ask the external SKU Advisor to analyze live inventory instead of its bundled sample. The external service must separately permit live reads.')
+param skuAdvisorLiveUsage bool = false
 
 @description('Comma-separated Azure regions the estate runs in, e.g. "uksouth,swedencentral". Live discovery is filtered by region, and when none is given the advisor falls back to its own pricing region list — an estate outside it then reports zero workloads with no error. Leave empty only when the advisor is configured with the right regions itself.')
 param skuAdvisorRegions string = ''
 
-@description('Ask the SKU Advisor to source rightsizing telemetry (90-day P99 CPU/memory/IOPS busy-signal) live from Azure Monitor platform metrics. Requires skuAdvisorAllowLiveReads and Reader/Monitoring Reader for the Managed Identity on the estate subscription. Off by default.')
+@description('Ask the external SKU Advisor to source rightsizing telemetry (90-day P99 CPU/memory/IOPS busy-signal) live from Azure Monitor platform metrics. Requires skuAdvisorLiveUsage and appropriate permissions on the advisor service identity. Off by default.')
 param skuAdvisorLiveTelemetry bool = false
 
 // ============================================================================
@@ -81,15 +78,12 @@ param minReplicas int = 1
 param maxReplicas int = 3
 
 // ============================================================================
-// Container Registry Parameters
+// Private Container Registry
 // ============================================================================
 
-@description('Azure Container Registry SKU.')
-@allowed(['Basic', 'Standard', 'Premium'])
-param acrSku string = 'Basic'
-
-@description('Create the AcrPull role assignment for the Container App identity. Requires Owner or User Access Administrator on the resource group. Set to false when deploying with Contributor only, and grant AcrPull manually afterwards.')
-param grantAcrPull bool = true
+// The template intentionally does not create an empty registry. Public defaults
+// come from GHCR; operators using private custom images provide
+// privateAcrServer and grant AcrPull outside this deployment.
 
 // ============================================================================
 // Log Analytics Parameters
@@ -266,26 +260,6 @@ module identities 'modules/identities.bicep' = {
 }
 
 // ============================================================================
-// Module: Azure Container Registry
-// ============================================================================
-
-module acr 'modules/acr.bicep' = {
-  name: 'acr-deployment'
-  params: {
-    location: location
-    projectName: projectName
-    environment: environment
-    acrSku: acrSku
-    pullPrincipalId: grantAcrPull ? identities.outputs.userAssignedIdentityPrincipalId : ''
-    tags: commonTags
-  }
-}
-
-// ============================================================================
-// Module: Container App (FinOps Dashboard)
-// ============================================================================
-
-// ============================================================================
 // Module: Container Apps Environment (shared by the dashboard and the MCP server)
 // ============================================================================
 
@@ -313,30 +287,8 @@ module mcpServer 'modules/mcp-containerapp.bicep' = if (deployMcp) {
     containerAppEnvironmentId: appEnvironment.outputs.environmentId
     userAssignedIdentityId: identities.outputs.userAssignedIdentityId
     userAssignedIdentityClientId: identities.outputs.userAssignedIdentityClientId
-    containerImageUri: '${acr.outputs.acrLoginServer}/${mcpImageName}'
-    acrLoginServer: acr.outputs.acrLoginServer
-    tags: commonTags
-  }
-}
-
-// ============================================================================
-// Module: Azure SKU Advisor API (optional, internal ingress)
-// ============================================================================
-
-module skuAdvisorServer 'modules/sku-advisor-containerapp.bicep' = if (deploySkuAdvisor) {
-  name: 'sku-advisor-deployment'
-  params: {
-    location: location
-    projectName: projectName
-    environment: environment
-    containerAppEnvironmentId: appEnvironment.outputs.environmentId
-    userAssignedIdentityId: identities.outputs.userAssignedIdentityId
-    userAssignedIdentityClientId: identities.outputs.userAssignedIdentityClientId
-    containerImageUri: '${acr.outputs.acrLoginServer}/${skuAdvisorImageName}'
-    acrLoginServer: acr.outputs.acrLoginServer
-    apiKey: skuAdvisorApiKey
-    allowLiveReads: skuAdvisorAllowLiveReads
-    allowAiNarrative: skuAdvisorAllowAiNarrative
+    containerImageUri: mcpImageUri
+    privateAcrServer: privateAcrServer
     tags: commonTags
   }
 }
@@ -397,8 +349,8 @@ module containerApp 'modules/containerapp.bicep' = {
     containerAppEnvironmentId: appEnvironment.outputs.environmentId
     userAssignedIdentityId: identities.outputs.userAssignedIdentityId
     userAssignedIdentityClientId: identities.outputs.userAssignedIdentityClientId
-    containerImageUri: '${acr.outputs.acrLoginServer}/${dashboardImageName}'
-    acrLoginServer: acr.outputs.acrLoginServer
+    containerImageUri: dashboardImageUri
+    privateAcrServer: privateAcrServer
     containerCpu: containerCpu
     containerMemory: containerMemory
     minReplicas: minReplicas
@@ -428,16 +380,14 @@ module containerApp 'modules/containerapp.bicep' = {
     azureOpenaiDeployment: azureOpenaiDeployment
     // MCP server URL (internal ingress; unreachable from outside the environment)
     mcpServerUrl: deployMcp ? mcpServer.outputs.mcpServerUrl : 'http://localhost:8080'
-    // SKU Advisor API (internal ingress). Empty leaves the /sku-advisor view on
-    // its workspace-export / sample fallback rather than failing.
-    skuAdvisorApiUrl: deploySkuAdvisor ? skuAdvisorServer.outputs.skuAdvisorUrl : ''
+    // External SKU Advisor API. Empty leaves the /sku-advisor view on its
+    // workspace-export / sample fallback rather than failing.
+    skuAdvisorApiUrl: skuAdvisorApiUrl
     skuAdvisorApiKey: skuAdvisorApiKey
     skuAdvisorApiKeyUri: effectiveSkuAdvisorApiKeyUri
-    // Only ask for live inventory when the advisor is also allowed to serve it,
-    // otherwise every call would take the 403 retry path.
-    skuAdvisorLiveUsage: deploySkuAdvisor && skuAdvisorAllowLiveReads
+    skuAdvisorLiveUsage: skuAdvisorLiveUsage
     skuAdvisorRegions: skuAdvisorRegions
-    skuAdvisorLiveTelemetry: deploySkuAdvisor && skuAdvisorAllowLiveReads && skuAdvisorLiveTelemetry
+    skuAdvisorLiveTelemetry: skuAdvisorLiveUsage && skuAdvisorLiveTelemetry
     // Auth secrets (only passed when needed; Bicep secureString ensures no plain-text logging)
     spTenantId: spTenantId
     spClientId: spClientId
@@ -478,12 +428,6 @@ output containerAppName string = containerApp.outputs.containerAppName
 @description('Container App Environment resource name.')
 output containerAppEnvironmentName string = appEnvironment.outputs.environmentName
 
-@description('ACR resource name.')
-output acrName string = acr.outputs.acrName
-
-@description('ACR login server (use this to tag and push images).')
-output acrLoginServer string = acr.outputs.acrLoginServer
-
 @description('Log Analytics Workspace resource ID.')
 output logAnalyticsWorkspaceId string = appEnvironment.outputs.logAnalyticsWorkspaceId
 
@@ -502,8 +446,8 @@ output managedIdentityClientId string = identities.outputs.userAssignedIdentityC
 @description('Internal URL of the Azure Pricing MCP server (if deployed). Only reachable from inside the Container Apps Environment.')
 output mcpServerUrl string = deployMcp ? mcpServer.outputs.mcpServerUrl : 'Not deployed'
 
-@description('Internal URL of the Azure SKU Advisor API (if deployed). Only reachable from inside the Container Apps Environment.')
-output skuAdvisorUrl string = deploySkuAdvisor ? skuAdvisorServer.outputs.skuAdvisorUrl : 'Not deployed'
+@description('Configured external Azure SKU Advisor API URL.')
+output skuAdvisorUrl string = empty(skuAdvisorApiUrl) ? 'Not configured' : skuAdvisorApiUrl
 
 @description('Key Vault holding the application secrets (if deployed).')
 output keyVaultName string = deployKeyVault ? keyVault.outputs.keyVaultName : 'Not deployed'

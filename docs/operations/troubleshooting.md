@@ -24,7 +24,8 @@ az containerapp revision list \
 
 | Symptom in logs                        | Cause                                            | Fix                                                              |
 | -------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| `Error: image not found` or pull error | Image not pushed to ACR, or AcrPull role missing | Push image to ACR; assign AcrPull role to Managed Identity       |
+| `MANIFEST_UNKNOWN` for a default GHCR image | Requested release was not published or package is private | Verify the version in `main.bicep` and that both GHCR packages are public |
+| Private image pull error | Image tag missing or pull role absent | Push the exact tag and grant the deployment identity registry pull access |
 | `Cannot find module '...'`             | Build failed or wrong image tag                  | Rebuild image and push correct tag                               |
 | `PORT must be 3000`                    | App listening on wrong port                      | Ensure Dockerfile exposes 3000 and app listens on `PORT` env var |
 | `EADDRINUSE: address already in use`   | Multiple processes in container                  | Fix Dockerfile CMD to run single process                         |
@@ -71,11 +72,8 @@ az containerapp show \
   --resource-group <RESOURCE_GROUP> \
   --query "identity"
 
-# Verify AcrPull role assignment
-az role assignment list \
-  --assignee <IDENTITY_PRINCIPAL_ID> \
-  --role AcrPull \
-  --output table
+# Only for a configured private registry: verify the pull role assignment.
+az role assignment list --assignee <IDENTITY_PRINCIPAL_ID> --role AcrPull --output table
 
 # Verify ADX role assignment
 az kusto database-principal-assignment list \
@@ -204,20 +202,23 @@ copy a short timeout from a non-reasoning example.
 
 ---
 
-## ACR image pull errors
+## Container image pull errors
 
 **Symptom**: `Failed to pull image` or `unauthorized: authentication required` in container logs.
 
-**Fix**:
+For the public defaults, first verify that the exact immutable package is public:
 
 ```bash
-# 1. Confirm ACR admin is disabled (expected)
-az acr show \
-  --name <ACR_NAME> \
-  --query "properties.adminUserEnabled"
-# Should return: false
+docker manifest inspect ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:1.0.0
+docker manifest inspect ghcr.io/arthursilvany/finops-dashboard-ia-azure-pricing-mcp:1.0.0
+```
 
-# 2. Assign AcrPull to the Managed Identity
+If `MANIFEST_UNKNOWN` occurs, do not retry the Azure deployment until the
+selected version exists and both packages are public.
+
+For a configured private ACR:
+
+```bash
 IDENTITY_PRINCIPAL=$(az containerapp show \
   --name ca-<PROJECT_NAME>-<ENV> \
   --resource-group <RESOURCE_GROUP> \
@@ -230,7 +231,6 @@ az role assignment create \
   --role AcrPull \
   --scope "$ACR_ID"
 
-# 3. Restart the Container App
 az containerapp revision restart \
   --name ca-<PROJECT_NAME>-<ENV> \
   --resource-group <RESOURCE_GROUP>
@@ -261,7 +261,6 @@ az containerapp revision restart \
 
 | Error message                                                         | Fix                                                                                             |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `ACR name already taken`                                              | ACR names are globally unique. Change `projectName` to something more unique.                   |
 | `Container App name already exists`                                   | Use a different `environment` value (e.g., `prod` → `prod2`) or use an existing resource group. |
 | `The subscription is not registered to use namespace 'Microsoft.App'` | Run: `az provider register --namespace Microsoft.App`                                           |
 | `Quota exceeded`                                                      | Request a quota increase in the Azure Portal under **Subscriptions → Usage + quotas**.          |

@@ -16,12 +16,12 @@ param environment string
 @description('Resource ID of the shared Container Apps Environment.')
 param containerAppEnvironmentId string
 
-@description('User-Assigned Managed Identity used to pull from ACR and to call Azure management APIs (Spot pricing tools).')
+@description('User-Assigned Managed Identity used for private registry pulls and Azure management APIs (Spot pricing tools).')
 param userAssignedIdentityId string
 param userAssignedIdentityClientId string
 
 param containerImageUri string
-param acrLoginServer string
+param privateAcrServer string = ''
 
 param containerCpu string = '0.5'
 param containerMemory string = '1Gi'
@@ -60,9 +60,9 @@ resource mcpApp 'Microsoft.App/containerApps@2024-03-01' = {
           }
         ]
       }
-      registries: [
+      registries: empty(privateAcrServer) ? [] : [
         {
-          server: acrLoginServer
+          server: privateAcrServer
           identity: userAssignedIdentityId
         }
       ]

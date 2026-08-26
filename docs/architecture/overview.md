@@ -16,17 +16,17 @@ The FinOps Dashboard IA is a containerized web application that provides real-ti
 │  │  Container Apps Environment           │                         │
 │  │  (Consumption / Dedicated)            │                         │
 │  │                                       │                         │
-│  │  ┌─────────────────────────────────┐  │   ┌──────────────────┐ │
-│  │  │  Container App                  │  │   │  Container       │ │
-│  │  │  finops-dashboard               ◄──┼───┤  Registry (ACR)  │ │
-│  │  │  Port 3000 (Next.js 16)         │  │   │  [AcrPull role]  │ │
-│  │  └────────────┬────────────────────┘  │   └──────────────────┘ │
+│  │  ┌─────────────────────────────────┐  │                         │
+│  │  │  Container App                  │  │                         │
+│  │  │  finops-dashboard               │  │                         │
+│  │  │  Port 3000 (Next.js 16)         │  │                         │
+│  │  └────────────┬────────────────────┘  │                         │
 │  │               │                       │                         │
 │  └───────────────┼───────────────────────┘                         │
 │                  │ Managed Identity (UAMI)                          │
 │  ┌───────────────▼────────────────┐                                │
 │  │  User-Assigned Managed Identity│                                │
-│  │  (AcrPull + analytics RBAC)    │                                │
+│  │  (analytics and Key Vault RBAC)│                                │
 │  └────────────────────────────────┘                                │
 │                                                                     │
 │  ┌────────────────────────────────┐                                │
@@ -35,7 +35,7 @@ The FinOps Dashboard IA is a containerized web application that provides real-ti
 │  └────────────────────────────────┘                                │
 └─────────────────────────────────────────────────────────────────────┘
          │
-         │ Outbound (HTTPS)
+         │ Outbound (HTTPS; runtime images come from public GHCR)
          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Analytics Backends (external — not deployed by this template)      │
@@ -75,7 +75,7 @@ The FinOps Dashboard IA is a containerized web application that provides real-ti
 | AI                 | Azure OpenAI / Azure AI Foundry               |
 | Container          | Docker multi-stage build (Node 22 Alpine)     |
 | Runtime            | Azure Container Apps (Consumption plan)       |
-| Registry           | Azure Container Registry                      |
+| Registry           | GitHub Container Registry (public artifacts)  |
 | IaC                | Azure Bicep → ARM JSON                        |
 
 ---
@@ -110,7 +110,7 @@ The FinOps Dashboard IA is a containerized web application that provides real-ti
 ## Security Architecture
 
 - **Managed Identity** (User-Assigned) is the default and recommended authentication mode. No secrets to rotate.
-- **ACR image pull** uses the Managed Identity (AcrPull role), not admin credentials.
+- **Public image pull** uses versioned GHCR artifacts with no registry credential.
 - Container App **secrets** are used when Service Principal or API Key auth is selected. Secrets are never stored in ARM parameters or environment variable values.
 - All outbound HTTPS traffic. Inbound restricted to Container Apps platform.
 - Log Analytics Workspace retains logs for the configured retention period (7–730 days).
@@ -136,7 +136,6 @@ Bicep modules:
 | --------------------------------- | -------------------------------------------------------- |
 | `main.bicep`                      | Main orchestrator — wires all modules together            |
 | `modules/identities.bicep`        | User-Assigned Managed Identity                            |
-| `modules/acr.bicep`               | Azure Container Registry                                  |
 | `modules/environment.bicep`       | Log Analytics + Container Apps Environment (shared)       |
 | `modules/containerapp.bicep`      | Dashboard Container App (external ingress + Easy Auth)    |
 | `modules/mcp-containerapp.bicep`  | Optional pricing MCP Container App (**internal** ingress) |

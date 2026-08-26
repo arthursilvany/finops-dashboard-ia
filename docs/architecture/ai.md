@@ -279,8 +279,8 @@ No client secret is required for standard production deployment.
 
 ### Option A - Container Apps (recommended baseline)
 
-1. Build a production image using Next.js standalone output.
-2. Push image to Azure Container Registry.
+1. Publish a versioned production image through the repository Release workflow.
+2. Pull the public artifact from GitHub Container Registry.
 3. Deploy to Azure Container Apps with user-assigned managed identity.
 4. Assign least-privilege roles:
    - Cognitive Services OpenAI User

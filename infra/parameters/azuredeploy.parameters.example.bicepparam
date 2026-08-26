@@ -73,14 +73,19 @@ param containerMemory = '1Gi'        // Memory: 0.5Gi | 1Gi | 2Gi | 4Gi
 param minReplicas = 1
 param maxReplicas = 3
 
-// ─── ACR & Image ──────────────────────────────────────────────────────────────
-param acrSku = 'Basic'              // Options: Basic | Standard | Premium
-// Creates the AcrPull role assignment for the Container App identity.
-// Requires Owner or User Access Administrator; set to false if you only have
-// Contributor and grant AcrPull manually afterwards (see docs/security.md).
-param grantAcrPull = true
-param dashboardImageName = 'finops-dashboard:latest'
-param deployMcp = false              // Set to true to deploy the Azure Pricing MCP Functions server
+// ─── Container Images ─────────────────────────────────────────────────────────
+// Versioned public GHCR images are the defaults; no registry bootstrap is needed.
+param dashboardImageUri = 'ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:1.0.0'
+param mcpImageUri = 'ghcr.io/arthursilvany/finops-dashboard-ia-azure-pricing-mcp:1.0.0'
+param deployMcp = false              // Set true to deploy the internal pricing MCP server
+
+// For private custom images, provide full image URIs and the registry host,
+// then grant AcrPull to the deployment identity before provisioning.
+// param privateAcrServer = '<ACR_NAME>.azurecr.io'
+
+// Azure SKU Advisor is deployed separately because its source is external to
+// this repository. Configure an existing endpoint or leave empty for fallback.
+// param skuAdvisorApiUrl = 'https://<INTERNAL_OR_PRIVATE_ADVISOR_ENDPOINT>'
 
 // ─── Monitoring ───────────────────────────────────────────────────────────────
 param logRetentionDays = 30          // Log Analytics retention (30-730 days)

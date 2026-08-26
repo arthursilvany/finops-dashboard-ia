@@ -49,23 +49,20 @@ A single deployment creates the following Azure resources:
 ```
 main.bicep
 ├── identities          → User-Assigned Managed Identity
-├── acr                 → Azure Container Registry  (depends on identities)
 ├── appEnvironment      → Container Apps Environment + Log Analytics Workspace
 ├── keyVault [optional] → Key Vault for application secrets  (depends on identities)
-├── mcpServer [optional]→ Azure Pricing MCP Container App (depends on acr, appEnvironment, identities)
-├── skuAdvisorServer    → Azure SKU Advisor Container App  (depends on acr, appEnvironment, identities)
-│   [optional]
+├── mcpServer [optional]→ Azure Pricing MCP Container App (depends on appEnvironment, identities)
 └── containerApp        → FinOps Dashboard Container App   (depends on all of the above)
 ```
 
-`identities`, `acr`, and `appEnvironment` are independent of each other and
-deploy in parallel. The three Container Apps (`mcpServer`, `skuAdvisorServer`,
-`containerApp`) and `keyVault` each depend on earlier outputs and deploy once
-their inputs are resolved.
+`identities` and `appEnvironment` deploy in parallel. The dashboard and optional
+MCP Container Apps pull versioned public GHCR images by default. A private
+custom registry can be supplied, but it must already contain the selected
+images and the identity must already have pull access.
 
-The MCP server and SKU Advisor are **conditional**: they are only deployed when
-`deployMcp=true` and `deploySkuAdvisor=true` respectively. The dashboard falls
-back to a local stub / sample data if either is absent.
+The MCP server is conditional on `deployMcp=true`. Azure SKU Advisor is an
+external project and is integrated through `skuAdvisorApiUrl`; the dashboard
+falls back to workspace-export or sample data when that URL is empty.
 
 ---
 
@@ -84,12 +81,11 @@ outputs.
 ARM evaluates module dependencies automatically, but the logical order is:
 
 1. `identities` — no dependencies.
-2. `acr`, `appEnvironment` — independent; may deploy in parallel. `acr` depends
-   on `identities` only when `grantAcrPull=true`.
+2. `appEnvironment` — no dependencies.
 3. `keyVault` — depends on `identities.outputs.userAssignedIdentityPrincipalId`.
-4. `mcpServer`, `skuAdvisorServer` — conditional; each depends on `acr`,
-   `appEnvironment`, and `identities`.
-5. `containerApp` — depends on all preceding modules.
+4. `mcpServer` — conditional; depends on `appEnvironment` and `identities`.
+5. `containerApp` — depends on the shared environment, identity, optional MCP,
+   and optional Key Vault.
 
 ### Parameters
 
@@ -98,21 +94,18 @@ ARM evaluates module dependencies automatically, but the logical order is:
 | `location` | string | `resourceGroup().location` | Azure region for all resources. |
 | `projectName` | string | `'finops-dashboard'` | Prefix for resource names. 3–20 chars, lowercase alphanumeric and hyphens. |
 | `environment` | string | `'prod'` | Deployment stage. Allowed: `dev`, `poc`, `staging`, `prod`. |
-| `dashboardImageName` | string | `'finops-dashboard:latest'` | Image name and tag for the dashboard, relative to the ACR login server. |
-| `mcpImageName` | string | `'azure-pricing-mcp:latest'` | Image name and tag for the Azure Pricing MCP server. |
+| `dashboardImageUri` | string | `ghcr.io/...-dashboard:1.0.0` | Full versioned dashboard image URI. |
+| `mcpImageUri` | string | `ghcr.io/...-azure-pricing-mcp:1.0.0` | Full versioned Azure Pricing MCP image URI. |
 | `deployMcp` | bool | `false` | Deploy the pricing MCP server as an internal Container App. |
-| `skuAdvisorImageName` | string | `'azure-sku-advisor:latest'` | Image name and tag for the SKU Advisor. |
-| `deploySkuAdvisor` | bool | `false` | Deploy the SKU Advisor API as an internal Container App. |
+| `privateAcrServer` | string | `''` | Private ACR login server for custom images. Empty uses anonymous public pulls. |
+| `skuAdvisorApiUrl` | string | `''` | Base URL of an independently deployed SKU Advisor API. |
 | `skuAdvisorApiKey` | string (secure) | `''` | Shared key the dashboard sends to the SKU Advisor as `x-api-key`. |
-| `skuAdvisorAllowLiveReads` | bool | `false` | Allow the SKU Advisor to read the Azure estate live via Managed Identity. Off by default. |
-| `skuAdvisorAllowAiNarrative` | bool | `false` | Allow the SKU Advisor grounded AI narrative (billable OpenAI calls). Off by default. |
+| `skuAdvisorLiveUsage` | bool | `false` | Ask the external advisor to use live inventory. |
 | `skuAdvisorRegions` | string | `''` | Comma-separated Azure regions the estate runs in (e.g. `uksouth,swedencentral`). |
 | `containerCpu` | string | `'0.5'` | vCPU for the dashboard. Allowed: `0.25`, `0.5`, `1.0`, `2.0`. |
 | `containerMemory` | string | `'1Gi'` | Memory for the dashboard. Allowed: `0.5Gi`, `1Gi`, `2Gi`, `4Gi`. |
 | `minReplicas` | int | `1` | Minimum replicas. `0` enables scale-to-zero. Range: 0–10. |
 | `maxReplicas` | int | `3` | Maximum replicas. Range: 1–30. |
-| `acrSku` | string | `'Basic'` | ACR pricing tier. Allowed: `Basic`, `Standard`, `Premium`. |
-| `grantAcrPull` | bool | `true` | Create the `AcrPull` role assignment for the managed identity. Set `false` when the deploying principal has only `Contributor`. |
 | `logRetentionDays` | int | `30` | Log Analytics retention in days. Range: 30–730. |
 | `analyticsBackend` | string | `'ADX'` | Cost data backend. Allowed: `None`, `ADX`, `Fabric`, `Foundry`. |
 | `adxClusterUri` | string | `''` | ADX cluster URI. Required when `analyticsBackend=ADX`. |
@@ -155,15 +148,13 @@ ARM evaluates module dependencies automatically, but the logical order is:
 | `containerAppUrl` | string | Public HTTPS URL of the FinOps Dashboard. |
 | `containerAppName` | string | Container App resource name. |
 | `containerAppEnvironmentName` | string | Container Apps Environment resource name. |
-| `acrName` | string | ACR resource name. |
-| `acrLoginServer` | string | ACR login server (use when tagging and pushing images). |
 | `logAnalyticsWorkspaceId` | string | Log Analytics Workspace resource ID. |
 | `logAnalyticsWorkspaceName` | string | Log Analytics Workspace name. |
 | `managedIdentityId` | string | User-Assigned Managed Identity resource ID. |
 | `managedIdentityPrincipalId` | string | Principal ID — use for RBAC assignments on backend resources. |
 | `managedIdentityClientId` | string | Client ID injected into containers as `AZURE_CLIENT_ID`. |
 | `mcpServerUrl` | string | Internal URL of the pricing MCP server, or `Not deployed`. |
-| `skuAdvisorUrl` | string | Internal URL of the SKU Advisor API, or `Not deployed`. |
+| `skuAdvisorUrl` | string | Configured external SKU Advisor URL, or `Not configured`. |
 | `keyVaultName` | string | Key Vault name, or `Not deployed`. |
 | `keyVaultUri` | string | Key Vault base URI for secret rotation, or `Not deployed`. |
 | `analyticsBackendConfigured` | string | Analytics backend that was configured. |
@@ -178,9 +169,9 @@ ARM evaluates module dependencies automatically, but the logical order is:
 Container App in the deployment.  
 **Depends on:** nothing.
 
-The identity is the only principal that authenticates to ACR, Key Vault, ADX,
-Fabric, and Azure Resource Graph. Using a single identity simplifies RBAC and
-makes it easy to enumerate the identity's permissions from one place.
+The identity authenticates to Key Vault, ADX, Fabric, and Azure Resource Graph.
+It is also used for a private ACR when `privateAcrServer` is
+set. Public GHCR defaults require no registry credentials.
 
 Resource naming: `mi-<projectName>-<environment>`
 
@@ -200,43 +191,6 @@ Resource naming: `mi-<projectName>-<environment>`
 | `userAssignedIdentityId` | string | Resource ID of the identity — used in Container App `identity` blocks. |
 | `userAssignedIdentityClientId` | string | Client ID — injected as `AZURE_CLIENT_ID` so `DefaultAzureCredential` resolves it. |
 | `userAssignedIdentityPrincipalId` | string | Object ID — used when creating RBAC role assignments. |
-
----
-
-## Module: `acr.bicep`
-
-**File:** `infra/bicep/finops-dashboard/modules/acr.bicep`  
-**Purpose:** Provisions the Azure Container Registry that stores all container
-images pushed to this deployment.  
-**Depends on:** `identities` (for `pullPrincipalId` when `grantAcrPull=true`).
-
-Admin user access is **disabled**. The Container Apps pull images using the
-User-Assigned Managed Identity with the `AcrPull` role. When `pullPrincipalId`
-is non-empty, the role assignment is created inside this module.
-
-The `retentionPolicy` property is only emitted for `Premium` SKU; on `Basic` or
-`Standard` the property is omitted to avoid a `SkuNotSupported` preflight error.
-
-Resource naming: `acr<projectNameNoHyphens><environment>`
-
-### Parameters
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `location` | string | _(required)_ | Azure region. |
-| `projectName` | string | _(required)_ | Resource name prefix. |
-| `environment` | string | _(required)_ | Deployment stage. |
-| `acrSku` | string | `'Basic'` | Registry pricing tier. Allowed: `Basic`, `Standard`, `Premium`. |
-| `pullPrincipalId` | string | `''` | Principal ID of the identity that will pull images. When non-empty, an `AcrPull` role assignment is created on this registry. |
-| `tags` | object | `{}` | Resource tags. |
-
-### Outputs
-
-| Name | Type | Description |
-|------|------|-------------|
-| `acrLoginServer` | string | Login server FQDN (e.g. `acrfinopsdashboardprod.azurecr.io`). |
-| `acrId` | string | Resource ID of the registry. |
-| `acrName` | string | Resource name of the registry. |
 
 ---
 
@@ -284,8 +238,8 @@ Resource naming:
 **Purpose:** Provisions the main FinOps Dashboard Container App with external
 HTTPS ingress, and optionally attaches Easy Auth (Microsoft Entra ID) in front
 of that ingress.  
-**Depends on:** `identities`, `acr`, `appEnvironment`, and (when used)
-`keyVault`, `mcpServer`, `skuAdvisorServer`.
+**Depends on:** `identities`, `appEnvironment`, and (when used)
+`keyVault` and `mcpServer`.
 
 The module wires all analytics backend choices, authentication modes, and
 optional Key Vault references into a single `containerApps` resource. Key points:
@@ -313,8 +267,8 @@ Resource naming: `app-<projectName>-<environment>`
 | `environment` | string | _(required)_ | Deployment stage. |
 | `userAssignedIdentityId` | string | _(required)_ | Resource ID of the managed identity. |
 | `userAssignedIdentityClientId` | string | _(required)_ | Client ID injected as `AZURE_CLIENT_ID`. |
-| `containerImageUri` | string | _(required)_ | Full image URI including the ACR login server. |
-| `acrLoginServer` | string | _(required)_ | ACR server for the registry credentials block. |
+| `containerImageUri` | string | _(required)_ | Full image URI. |
+| `privateAcrServer` | string | `''` | Private ACR login server. Empty omits registry credentials for public images. |
 | `containerAppEnvironmentId` | string | _(required)_ | Resource ID of the Container Apps Environment. |
 | `containerCpu` | string | `'0.5'` | vCPU allocation. |
 | `containerMemory` | string | `'1Gi'` | Memory allocation. |
@@ -431,7 +385,7 @@ Resource naming (when `keyVaultName` is empty):
 **File:** `infra/bicep/finops-dashboard/modules/mcp-containerapp.bicep`  
 **Purpose:** Provisions the Azure Pricing MCP server as an **internal-ingress**
 Container App on port 8080.  
-**Depends on:** `identities`, `acr`, `appEnvironment`.
+**Depends on:** `identities`, `appEnvironment`.
 
 The MCP server has no built-in authentication, which is why its ingress is
 internal (`external: false`). It is only reachable from other apps inside the
@@ -451,10 +405,10 @@ Resource naming: `app-<projectName>-mcp-<environment>`
 | `projectName` | string | _(required)_ | Resource name prefix. |
 | `environment` | string | _(required)_ | Deployment stage. |
 | `containerAppEnvironmentId` | string | _(required)_ | Resource ID of the shared environment. |
-| `userAssignedIdentityId` | string | _(required)_ | Resource ID of the managed identity (used for ACR pulls). |
+| `userAssignedIdentityId` | string | _(required)_ | Resource ID of the managed identity. |
 | `userAssignedIdentityClientId` | string | _(required)_ | Client ID injected as `AZURE_CLIENT_ID`. |
 | `containerImageUri` | string | _(required)_ | Full image URI. |
-| `acrLoginServer` | string | _(required)_ | ACR server for registry credentials. |
+| `privateAcrServer` | string | `''` | Private ACR login server. Empty omits registry credentials for public images. |
 | `containerCpu` | string | `'0.5'` | vCPU allocation. |
 | `containerMemory` | string | `'1Gi'` | Memory allocation. |
 | `minReplicas` | int | `1` | Minimum replicas. Keep ≥ 1 to avoid session cold-start. |
@@ -471,63 +425,6 @@ Resource naming: `app-<projectName>-mcp-<environment>`
 
 ---
 
-## Module: `sku-advisor-containerapp.bicep`
-
-**File:** `infra/bicep/finops-dashboard/modules/sku-advisor-containerapp.bicep`  
-**Purpose:** Provisions the Azure SKU Advisor API as an **internal-ingress**
-Container App on port 8080, serving `GET /api/recommendations`.  
-**Depends on:** `identities`, `acr`, `appEnvironment`.
-
-Security is layered:
-
-1. **Internal ingress** — only the dashboard, inside the environment, can reach it.
-2. **Shared API key** — even a compromised neighbour in the environment cannot
-   query it without the key.
-3. `SKU_ADVISOR_ALLOW_LIVE` and `SKU_ADVISOR_ALLOW_AI` default to `false` — a
-   fresh deployment cannot read the customer estate or make billable AI calls by
-   accident.
-
-The container name candidate `app-<projectName>-skuadv-<environment>` is
-deterministically truncated to 32 characters (Container Apps limit) and any
-trailing hyphen is stripped.
-
-A liveness probe runs against `GET /health` on port 8080 every 30 seconds after
-a 10-second initial delay.
-
-Resource naming: `app-<projectName>-skuadv-<environment>` (truncated to ≤32 chars)
-
-### Parameters
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `location` | string | _(required)_ | Azure region. |
-| `projectName` | string | _(required)_ | Resource name prefix. |
-| `environment` | string | _(required)_ | Deployment stage. |
-| `containerAppEnvironmentId` | string | _(required)_ | Resource ID of the shared environment. |
-| `userAssignedIdentityId` | string | _(required)_ | Resource ID of the managed identity. |
-| `userAssignedIdentityClientId` | string | _(required)_ | Client ID injected as `AZURE_CLIENT_ID`. |
-| `containerImageUri` | string | _(required)_ | Full image URI. |
-| `acrLoginServer` | string | _(required)_ | ACR server for registry credentials. |
-| `containerCpu` | string | `'0.5'` | vCPU allocation. |
-| `containerMemory` | string | `'1Gi'` | Memory allocation. |
-| `apiKey` | string (secure) | `''` | Shared API key injected as `SKU_ADVISOR_API_KEY`. Empty leaves the service key-less (only acceptable behind internal ingress). |
-| `allowLiveReads` | bool | `false` | Allow Managed-Identity-backed live reads of the Azure estate. |
-| `allowAiNarrative` | bool | `false` | Allow the grounded AI narrative (billable OpenAI). |
-| `cacheTtlSeconds` | int | `900` | Recommendation cache TTL in seconds. |
-| `minReplicas` | int | `1` | Minimum replicas. Keep ≥ 1 to avoid cold-start latency on first page load. |
-| `maxReplicas` | int | `2` | Maximum replicas. |
-| `tags` | object | `{}` | Resource tags. |
-
-### Outputs
-
-| Name | Type | Description |
-|------|------|-------------|
-| `skuAdvisorUrl` | string | Internal HTTPS URL. Only resolvable inside the environment. |
-| `containerAppName` | string | Resource name of the Container App. |
-| `containerAppId` | string | Resource ID of the Container App. |
-
----
-
 ## Identity and RBAC
 
 `identities.bicep` creates a single User-Assigned Managed Identity. Role
@@ -537,7 +434,6 @@ assignments happen in two places:
 
 | Role | Scope | Module | Condition |
 |------|-------|--------|-----------|
-| `AcrPull` | ACR resource | `acr.bicep` | `pullPrincipalId` is non-empty (controlled by `grantAcrPull` in `main.bicep`) |
 | `Key Vault Secrets User` | Key Vault resource | `keyvault.bicep` | `readerPrincipalId` is non-empty |
 
 ### Assigned manually after deployment
@@ -548,6 +444,7 @@ assignments happen in two places:
 | `Reader` | Subscription | Azure Portal or CLI | Required when `azureSubscriptionId` is set and the Agentic FinOps view needs to query Azure Advisor via Resource Graph. |
 | Fabric KQL query permissions | Fabric Workspace | Fabric Admin | Required when `analyticsBackend=Fabric`. |
 | Azure AI Foundry contributor | Foundry project | Azure Portal or CLI | Required when `analyticsBackend=Foundry`. |
+| `AcrPull` | Private custom ACR | Azure Portal or CLI | Required only when `privateAcrServer` references a private ACR. |
 
 See [`../operations/security.md`](../operations/security.md) for the complete
 security baseline, RBAC steps, and Easy Auth setup.

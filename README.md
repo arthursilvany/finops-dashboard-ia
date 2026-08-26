@@ -35,8 +35,7 @@ RBAC-controlled deployment, publish it as a [Template Spec](#publishing-a-templa
 Before deploying:
 
 1. **An Azure subscription** with at least Contributor access to a resource group.
-2. **A container image** built and pushed to an ACR (or another accessible registry). See [docs/operations/deployment.md](./docs/operations/deployment.md).
-3. **A cost data source**: an ADX cluster with FinOps data, a Fabric KQL database, or an AI Foundry project.
+2. **A cost data source**: an ADX cluster with FinOps data, a Fabric KQL database, or an AI Foundry project. Select `None` for demo mode.
 
 ---
 
@@ -46,7 +45,7 @@ Publish the template as a [Template Spec](#publishing-a-template-spec), then dep
 the Azure Portal. The wizard (`infra/portal/createUiDefinition.json`) walks you through:
 
 1. **Basics** — resource name prefix and environment tag
-2. **Container** — CPU, memory, scaling limits, ACR SKU
+2. **Container** — CPU, memory, and scaling limits
 3. **Analytics Backend** — choose ADX / Fabric / Foundry / None and enter the URIs
 4. **Authentication** — Managed Identity (recommended), Service Principal, or API Key
 5. **Logging** — log retention period and optional MCP pricing server
@@ -58,7 +57,6 @@ The wizard deploys the following resources to your selected resource group:
 | Container Apps Environment     | `env-{name}-{env}`        |
 | Container App (dashboard)      | `app-{name}-{env}`        |
 | Container App (MCP, optional)  | `app-{name}-mcp-{env}`    |
-| Container Registry             | `acr{name}{env}`          |
 | User-Assigned Managed Identity | `mi-{name}-{env}`         |
 | Log Analytics Workspace        | `log-{name}-{env}`        |
 | Key Vault (secrets)            | `kv-{name}{env}-{hash}`   |
@@ -97,21 +95,10 @@ az ad app update --id <ENTRA_APP_CLIENT_ID> \
   --web-redirect-uris "${FQDN}/.auth/login/aad/callback"
 ```
 
-The deployment creates the **AcrPull** role assignment automatically (`grantAcrPull = true`), which requires **Owner** or **User Access Administrator**. If you deploy with Contributor only, set `grantAcrPull = false` and assign the role manually:
-
-```bash
-# Get outputs
-IDENTITY_PRINCIPAL=$(az deployment group show \
-  -g rg-finops-dashboard -n main \
-  --query properties.outputs.managedIdentityPrincipalId.value -o tsv)
-
-ACR_ID=$(az acr show --name <ACR_NAME> --query id -o tsv)
-
-az role assignment create \
-  --assignee "$IDENTITY_PRINCIPAL" \
-  --role AcrPull \
-  --scope "$ACR_ID"
-```
+The template pulls versioned public dashboard and pricing MCP images from GHCR. It does not
+create an empty registry or require an image build before the first deployment. For a private
+custom ACR image, set the full image URI and `privateAcrServer`, then grant the deployment
+identity pull access before switching the deployment to those private images.
 
 > See [docs/operations/security.md](./docs/operations/security.md) for the full post-deployment security checklist.
 
@@ -179,22 +166,15 @@ cluster **Contributor** on the target cluster. See
 
 ---
 
-## Build & Push the Container Image
+## Published Container Images
 
-```bash
-cd apps/finops-dashboard
+The release workflow publishes immutable versions of both runtime images:
 
-# Build the Docker image
-docker build -t finops-dashboard:latest .
+- `ghcr.io/arthursilvany/finops-dashboard-ia-dashboard:1.0.0`
+- `ghcr.io/arthursilvany/finops-dashboard-ia-azure-pricing-mcp:1.0.0`
 
-# Tag for ACR
-ACR_LOGIN_SERVER="<ACR_NAME>.azurecr.io"
-docker tag finops-dashboard:latest "$ACR_LOGIN_SERVER/finops-dashboard:latest"
-
-# Login and push
-az acr login --name <ACR_NAME>
-docker push "$ACR_LOGIN_SERVER/finops-dashboard:latest"
-```
+The Bicep defaults use these public artifacts. Pin a different published version through
+`dashboardImageUri` and `mcpImageUri`; do not use `latest` in a production deployment.
 
 ---
 
@@ -276,7 +256,8 @@ looks like.
 
 ## Security Notes
 
-- **No admin credentials** in ACR — Managed Identity `AcrPull` role is used.
+- **No registry credentials for the defaults** — versioned runtime images are public and
+  pulled anonymously from GHCR.
 - **Entra ID sign-in required** — the public ingress is protected by Container Apps Easy Auth (`enableEasyAuth`); without it every `/api/*` route is anonymous.
 - **No hardcoded secrets** — credentials are stored in Azure Key Vault and reached through Container App Key Vault references, or avoided entirely via Managed Identity.
 - **No lab/personal data** committed to this repository. All files use `<PLACEHOLDER_*>` values.

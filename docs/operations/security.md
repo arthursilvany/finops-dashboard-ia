@@ -8,13 +8,16 @@ This deployment follows the principle of least privilege. All components use onl
 
 ## Post-Deployment RBAC Checklist
 
-After running the Bicep/ARM deployment, assign the following roles.
+After running the Bicep/ARM deployment, assign the following roles. The public
+GHCR image defaults need no registry role; backend data-plane access is still
+assigned explicitly.
 
-> **AcrPull is the only role the template can create for you.** It is controlled by the `grantAcrPull` parameter (default `true`), which requires **Owner** or **User Access Administrator** on the resource group. If you deploy with **Contributor** only, set `grantAcrPull` to `false` (uncheck "Grant AcrPull to the Container App identity" in the portal) — otherwise the deployment fails with `AuthorizationFailed` — and grant AcrPull manually using the commands below. All other role assignments (ADX, Azure OpenAI, Cost Management) must always be done manually.
+### 1. Private custom ACR — AcrPull (only when configured)
 
-### 1. ACR — AcrPull (required)
-
-The Container App's Managed Identity must be able to pull images from ACR. Skip this step if the deployment ran with `grantAcrPull = true`.
+Skip this section when using the public GHCR defaults. If
+`privateAcrServer` points to a private ACR, grant the deployment identity
+`AcrPull` before switching the deployment from the public defaults to private
+image URIs.
 
 ```bash
 # Get deployment outputs
@@ -25,9 +28,7 @@ IDENTITY_PRINCIPAL=$(az deployment group show \
   -g "$RESOURCE_GROUP" -n "$DEPLOYMENT_NAME" \
   --query "properties.outputs.managedIdentityPrincipalId.value" -o tsv)
 
-ACR_ID=$(az deployment group show \
-  -g "$RESOURCE_GROUP" -n "$DEPLOYMENT_NAME" \
-  --query "properties.outputs.acrId.value" -o tsv)
+ACR_ID=$(az acr show --name <ACR_NAME> --query id -o tsv)
 
 az role assignment create \
   --assignee "$IDENTITY_PRINCIPAL" \
@@ -202,9 +203,11 @@ Bearer/JWT validation for programmatic (non-browser) API callers and the MCP Fun
 
 ---
 
-## No Admin Credentials in ACR
+## Container Registry Credentials
 
-`adminUserEnabled` is set to `false` in the ACR configuration. The Container App pulls images using the Managed Identity with the **AcrPull** role. This eliminates shared admin passwords.
+The versioned GHCR defaults are public and require no registry credentials.
+For a private registry, the template configures the User-Assigned Managed
+Identity as the pull identity; do not enable shared registry admin credentials.
 
 ---
 
@@ -247,7 +250,8 @@ By default, the Container App environment uses **public ingress** on HTTPS (443)
 For stricter network control:
 
 - Enable **VNet integration** on the Container Apps Environment (requires Consumption Workload Profile or Dedicated plan).
-- Add a **private endpoint** to the ACR (Premium SKU required).
+- For private custom images, add a private endpoint to ACR when required by the
+  network design (Premium SKU required).
 - Restrict inbound access via **Container App ingress** rules.
 
 ---

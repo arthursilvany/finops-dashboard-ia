@@ -11,6 +11,8 @@ Entries before the first tagged release are grouped under **Unreleased**.
 
 ### Added
 
+- Versioned public GHCR images for the dashboard and Azure Pricing MCP server.
+- A clean Deploy to Azure path that does not require a registry bootstrap.
 - Repository governance: MIT `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `SUPPORT.md`, and this changelog.
 - Issue templates (bug report, feature request, documentation), a pull request template,
@@ -33,6 +35,12 @@ Entries before the first tagged release are grouped under **Unreleased**.
 - `grant-adx-access` helper script for post-deployment ADX role assignments.
 
 ### Changed
+
+- Deployment now consumes full image URIs and no longer creates an empty ACR.
+- Azure SKU Advisor remains an external endpoint integration because its source
+  and image build are maintained outside this repository.
+- The image parameter contract changed; existing deployments must follow the
+  migration and legacy-resource cleanup procedure in `docs/operations/deployment.md`.
 
 - Upgraded the dashboard runtime from Next.js 14 / React 18 to Next.js 16 / React 19 and moved
   the request authorization entry point from the retired middleware convention to
