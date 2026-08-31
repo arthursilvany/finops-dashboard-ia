@@ -1,0 +1,145 @@
+name: SRE Deployment Risk Assessment
+
+# Sends pull-request metadata and a bounded diff to the configured SRE Agent HTTP
+# trigger. This runs from the trusted base branch and never checks out PR code.
+# That is required because the workflow uses Azure OIDC and a trigger URL secret.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
+
+concurrency:
+  group: sre-deployment-risk-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  assess:
+    name: Request SRE deployment assessment
+    runs-on: ubuntu-latest
+    # This repository is public, and `pull_request_target` runs with the base branch's
+    # secrets. Without this guard any fork could spend agent executions at will. The
+    # workflow never checks out PR code, so the guard is about cost and abuse, not
+    # code execution.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      SRE_TRIGGER_URL: ${{ secrets.SRE_DEPLOYMENT_RISK_TRIGGER_URL }}
+
+    steps:
+      - name: Build bounded PR analysis payload
+        id: payload
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require("fs");
+            const path = require("path");
+            const pullNumber = context.payload.pull_request.number;
+            const repository = context.repo;
+            const maxDiffBytes = 180000;
+
+            const [pull, files, commits] = await Promise.all([
+              github.rest.pulls.get({
+                ...repository,
+                pull_number: pullNumber,
+              }),
+              github.paginate(github.rest.pulls.listFiles, {
+                ...repository,
+                pull_number: pullNumber,
+                per_page: 100,
+              }),
+              github.paginate(github.rest.pulls.listCommits, {
+                ...repository,
+                pull_number: pullNumber,
+                per_page: 100,
+              }),
+            ]);
+
+            const changedFiles = files.map((file) => ({
+              filename: file.filename,
+              status: file.status,
+              additions: file.additions,
+              deletions: file.deletions,
+              changes: file.changes,
+              patch: file.patch ?? null,
+            }));
+
+            let fullDiff = "";
+            let fullDiffTruncated = false;
+            for (const file of changedFiles) {
+              const patch = file.patch ?? "[Patch unavailable or binary file]";
+              const section = `diff --git a/${file.filename} b/${file.filename}\n${patch}\n`;
+              if (Buffer.byteLength(fullDiff + section, "utf8") > maxDiffBytes) {
+                fullDiffTruncated = true;
+                break;
+              }
+              fullDiff += section;
+            }
+
+            const deploymentPaths = changedFiles
+              .map((file) => file.filename)
+              .filter((file) => /^(infra\/|mcp\/|apps\/finops-dashboard\/|\.github\/workflows\/)/.test(file));
+
+            const payload = {
+              repository: pull.data.base.repo.full_name,
+              pullRequestId: pull.data.number,
+              pullRequestUrl: pull.data.html_url,
+              author: pull.data.user.login,
+              sourceBranch: pull.data.head.ref,
+              targetBranch: pull.data.base.ref,
+              title: pull.data.title,
+              description: pull.data.body ?? "",
+              commitMessages: commits.map((commit) => ({
+                sha: commit.sha,
+                message: commit.commit.message,
+              })),
+              changedFiles,
+              fullDiff,
+              fullDiffTruncated,
+              environmentInformation: {
+                trigger: "GitHub Actions pull_request_target",
+                eventAction: context.payload.action,
+                targetBranch: pull.data.base.ref,
+              },
+              deploymentMetadata: {
+                affectedDeploymentPaths: deploymentPaths,
+                additions: pull.data.additions,
+                deletions: pull.data.deletions,
+                changedFiles: pull.data.changed_files,
+              },
+            };
+
+            const payloadPath = path.join(process.env.RUNNER_TEMP, "sre-pr-risk-payload.json");
+            fs.writeFileSync(payloadPath, JSON.stringify(payload));
+            core.setOutput("path", payloadPath);
+            core.notice(`Prepared risk-analysis payload for PR #${pullNumber}.`);
+
+      - name: Authenticate to Azure with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Invoke SRE Agent HTTP trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          token=$(az account get-access-token \
+            --resource 59f0a04a-b322-4310-adc9-39ac41e9631e \
+            --query accessToken \
+            --output tsv)
+
+          response=$(curl --fail-with-body --silent --show-error \
+            --request POST "$SRE_TRIGGER_URL" \
+            --header "Authorization: Bearer $token" \
+            --header "Content-Type: application/json" \
+            --data-binary "@${{ steps.payload.outputs.path }}")
+
+          echo "$response" | jq -e '.success == true' > /dev/null
+          echo "SRE Agent trigger accepted the PR assessment request."
