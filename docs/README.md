@@ -67,3 +67,5 @@ understand how it fits together first.
 | Contribute a change | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Report a vulnerability | [SECURITY.md](../SECURITY.md) |
 | Understand the repo layout and invariants | [AGENTS.md](../AGENTS.md) |
+
+<!-- smoke test: SRE deployment risk workflow -->
