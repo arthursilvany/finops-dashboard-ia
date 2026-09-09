@@ -32,7 +32,7 @@
   "dependencies": {
     "@azure/arm-resourcegraph": "^5.0.0",
     "@azure/identity": "^4.13.2",
-    "csv-parse": "^7.0.1",
+    "csv-parse": "^7.0.2",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.2",
     "hyparquet": "^1.26.2",
